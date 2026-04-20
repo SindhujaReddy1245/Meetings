@@ -20,10 +20,17 @@ def init_db():
             description TEXT,
             start_time TEXT NOT NULL,
             end_time TEXT NOT NULL,
+            category TEXT NOT NULL DEFAULT 'meetings',
             room_id TEXT NOT NULL,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     ''')
+
+    cursor.execute("PRAGMA table_info(calendar_events)")
+    existing_columns = [row["name"] for row in cursor.fetchall()]
+
+    if "category" not in existing_columns:
+        cursor.execute("ALTER TABLE calendar_events ADD COLUMN category TEXT NOT NULL DEFAULT 'meetings'")
     
     conn.commit()
     conn.close()

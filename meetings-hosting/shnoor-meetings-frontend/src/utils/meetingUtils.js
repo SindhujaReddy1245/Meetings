@@ -174,6 +174,11 @@ export function closeCallHistoryEntry(sessionId, exitTime = new Date().toISOStri
   saveCallHistory(history);
 }
 
+export function removeCallHistoryEntry(sessionId) {
+  const history = getCallHistory().filter((item) => item.sessionId !== sessionId);
+  saveCallHistory(history);
+}
+
 export function formatDateTime(value) {
   if (!value) {
     return 'In progress';

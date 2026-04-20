@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { getMeetingPreferences, getTranslator, saveMeetingPreferences } from '../utils/meetingUtils';
 
-export default function MeetingHeader({ onOpenChatbot }) {
+export default function MeetingHeader({ onOpenChatbot, hideChatButton = false }) {
   const navigate = useNavigate();
   const location = useLocation();
   const [currentTime, setCurrentTime] = useState(() => format(new Date(), 'HH:mm - EEE, d MMM'));
@@ -103,14 +103,6 @@ export default function MeetingHeader({ onOpenChatbot }) {
             )}
           </div>
 
-          <div className="flex items-center gap-2 ml-1">
-            <div className="w-8 h-8 bg-blue-600 rounded flex items-center justify-center">
-              <span className="text-white font-bold text-xl leading-none">S</span>
-            </div>
-            <span className="text-xl font-medium text-gray-600 tracking-tight hidden sm:inline">
-              Shnoor <span className="font-normal text-gray-500">International LLC</span>
-            </span>
-          </div>
         </div>
 
         <div className="flex items-center gap-1">
@@ -126,13 +118,15 @@ export default function MeetingHeader({ onOpenChatbot }) {
             >
               <HelpCircle size={22} />
             </button>
-            <button
-              onClick={handleOpenChatbot}
-              className="p-2.5 hover:bg-gray-100 rounded-full text-gray-600 transition-colors"
-              title="Open chatbot"
-            >
-              <MessageSquare size={22} />
-            </button>
+            {!hideChatButton && (
+              <button
+                onClick={handleOpenChatbot}
+                className="p-2.5 hover:bg-gray-100 rounded-full text-gray-600 transition-colors"
+                title="Open chatbot"
+              >
+                <MessageSquare size={22} />
+              </button>
+            )}
             <button
               onClick={() => setIsSettingsOpen(true)}
               className="p-2.5 hover:bg-gray-100 rounded-full text-gray-600 transition-colors"

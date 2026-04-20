@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react';
-import { addMonths, subMonths, addWeeks, subWeeks, addDays, subDays } from 'date-fns';
+import { useState, useEffect, useMemo } from 'react';
+import { addMonths, subMonths, addWeeks, subWeeks, addDays, subDays, isAfter } from 'date-fns';
 import MeetingHeader from '../components/MeetingHeader';
 import MeetingSidebar from '../components/MeetingSidebar';
 import CalendarHeader from '../components/CalendarHeader';
@@ -11,6 +11,7 @@ export default function CalendarPage() {
   const [currentDate, setCurrentDate] = useState(new Date());
   const [view, setView] = useState('Month');
   const [events, setEvents] = useState([]);
+  const [activeCategories, setActiveCategories] = useState(['personal', 'meetings', 'reminders']);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [selectedEvent, setSelectedEvent] = useState(null);
   const [selectedDate, setSelectedDate] = useState(null);
@@ -51,6 +52,14 @@ export default function CalendarPage() {
     setIsModalOpen(true);
   };
 
+  const handleToggleCategory = (category) => {
+    setActiveCategories((prev) => (
+      prev.includes(category)
+        ? prev.filter((item) => item !== category)
+        : [...prev, category]
+    ));
+  };
+
   const handleSaveEvent = async (eventData) => {
     const method = eventData.id ? 'PUT' : 'POST';
     const url = eventData.id 
@@ -73,20 +82,33 @@ export default function CalendarPage() {
     }
   };
 
+  const filteredEvents = useMemo(() => (
+    events.filter((event) => activeCategories.includes(event.category || 'meetings'))
+  ), [activeCategories, events]);
+
+  const upcomingReminders = useMemo(() => (
+    events
+      .filter((event) => (event.category || 'meetings') === 'reminders' && isAfter(new Date(event.start_time), new Date()))
+      .sort((a, b) => new Date(a.start_time) - new Date(b.start_time))
+  ), [events]);
+
   return (
     <div className="flex flex-col h-screen bg-white overflow-hidden text-gray-900">
       <MeetingHeader />
       
       <div className="flex flex-1 overflow-hidden">
         <MeetingSidebar />
-        <CalendarSidebar 
-          currentDate={currentDate} 
+        <CalendarSidebar
+          currentDate={currentDate}
           onDateSelect={setCurrentDate}
           onCreateEvent={() => {
             setSelectedEvent(null);
             setSelectedDate(new Date());
             setIsModalOpen(true);
           }}
+          activeCategories={activeCategories}
+          onToggleCategory={handleToggleCategory}
+          upcomingReminders={upcomingReminders}
         />
         
         <main className="flex-1 flex flex-col min-w-0">
@@ -101,21 +123,21 @@ export default function CalendarPage() {
           {view === 'Month' && (
             <MonthView 
               currentDate={currentDate} 
-              events={events} 
+              events={filteredEvents} 
               onDateClick={handleDateClick} 
             />
           )}
           {view === 'Week' && (
             <WeekView 
               currentDate={currentDate} 
-              events={events} 
+              events={filteredEvents} 
               onSlotClick={handleDateClick} 
             />
           )}
           {view === 'Day' && (
             <DayView 
               currentDate={currentDate} 
-              events={events} 
+              events={filteredEvents} 
               onSlotClick={handleDateClick} 
             />
           )}

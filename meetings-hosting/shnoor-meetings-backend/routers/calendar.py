@@ -15,6 +15,7 @@ class CalendarEvent(BaseModel):
     description: Optional[str] = ""
     start_time: str
     end_time: str
+    category: str = "meetings"
     room_id: str
 
 class CreateEventResponse(BaseModel):
@@ -36,6 +37,7 @@ async def get_events():
             description=row["description"],
             start_time=row["start_time"],
             end_time=row["end_time"],
+            category=row["category"],
             room_id=row["room_id"]
         ) for row in rows
     ]
@@ -52,8 +54,8 @@ async def create_event(event: CalendarEvent):
     
     try:
         cursor.execute(
-            "INSERT INTO calendar_events (id, title, description, start_time, end_time, room_id) VALUES (?, ?, ?, ?, ?, ?)",
-            (event_id, event.title, event.description, event.start_time, event.end_time, room_id)
+            "INSERT INTO calendar_events (id, title, description, start_time, end_time, category, room_id) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (event_id, event.title, event.description, event.start_time, event.end_time, event.category, room_id)
         )
         conn.commit()
     except Exception as e:
@@ -79,8 +81,8 @@ async def update_event(id: str, event: CalendarEvent):
     
     try:
         cursor.execute(
-            "UPDATE calendar_events SET title = ?, description = ?, start_time = ?, end_time = ?, room_id = ? WHERE id = ?",
-            (event.title, event.description, event.start_time, event.end_time, event.room_id, id)
+            "UPDATE calendar_events SET title = ?, description = ?, start_time = ?, end_time = ?, category = ?, room_id = ? WHERE id = ?",
+            (event.title, event.description, event.start_time, event.end_time, event.category, event.room_id, id)
         )
         conn.commit()
         if cursor.rowcount == 0:

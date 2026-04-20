@@ -128,7 +128,7 @@ export default function LandingPage() {
 
   return (
     <div className="flex flex-col h-screen bg-white">
-      <MeetingHeader onOpenChatbot={() => setIsChatbotOpen(true)} />
+      <MeetingHeader onOpenChatbot={() => setIsChatbotOpen(true)} hideChatButton />
       
       <div className="flex flex-1 overflow-hidden">
         <MeetingSidebar />

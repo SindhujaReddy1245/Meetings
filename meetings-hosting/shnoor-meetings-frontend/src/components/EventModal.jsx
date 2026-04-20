@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { X, Clock, AlignLeft, Video, Calendar } from 'lucide-react';
-import { format, addHours } from 'date-fns';
+import { format, addHours, startOfToday, isBefore } from 'date-fns';
 import { motion, AnimatePresence } from 'framer-motion';
 
 export default function EventModal({ isOpen, onClose, selectedDate, onSave, event = null }) {
@@ -8,6 +8,8 @@ export default function EventModal({ isOpen, onClose, selectedDate, onSave, even
   const [description, setDescription] = useState(event?.description || '');
   const [startTime, setStartTime] = useState('');
   const [endTime, setEndTime] = useState('');
+  const [category, setCategory] = useState(event?.category || 'meetings');
+  const [validationMessage, setValidationMessage] = useState('');
 
   useEffect(() => {
     if (isOpen) {
@@ -16,6 +18,8 @@ export default function EventModal({ isOpen, onClose, selectedDate, onSave, even
         setDescription(event.description);
         setStartTime(format(new Date(event.start_time), "yyyy-MM-dd'T'HH:mm"));
         setEndTime(format(new Date(event.end_time), "yyyy-MM-dd'T'HH:mm"));
+        setCategory(event.category || 'meetings');
+        setValidationMessage('');
       } else {
         setTitle('');
         setDescription('');
@@ -24,18 +28,36 @@ export default function EventModal({ isOpen, onClose, selectedDate, onSave, even
         const end = addHours(start, 1);
         setStartTime(format(start, "yyyy-MM-dd'T'HH:mm"));
         setEndTime(format(end, "yyyy-MM-dd'T'HH:mm"));
+        setCategory('meetings');
+        setValidationMessage('');
       }
     }
   }, [isOpen, event, selectedDate]);
 
   const handleSubmit = (e) => {
     e.preventDefault();
+
+    const startDate = new Date(startTime);
+    const endDate = new Date(endTime);
+
+    if (isBefore(startDate, startOfToday())) {
+      setValidationMessage('Only today and future dates can be saved in calendar.');
+      return;
+    }
+
+    if (endDate < startDate) {
+      setValidationMessage('End time must be after start time.');
+      return;
+    }
+
+    setValidationMessage('');
     onSave({
       id: event?.id,
       title: title || '(No title)',
       description,
       start_time: startTime,
       end_time: endTime,
+      category,
       room_id: event?.room_id || Math.random().toString(36).substring(7),
     });
   };
@@ -111,6 +133,22 @@ export default function EventModal({ isOpen, onClose, selectedDate, onSave, even
                 </div>
 
                 <div className="flex items-start gap-6 text-gray-600">
+                  <div className="mt-2"><Calendar size={20} className="text-gray-400" /></div>
+                  <div className="flex-1 space-y-1">
+                    <label className="text-xs font-bold text-gray-400 uppercase tracking-widest ml-1">Category</label>
+                    <select
+                      value={category}
+                      onChange={(e) => setCategory(e.target.value)}
+                      className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 text-sm text-gray-700 focus:ring-2 focus:ring-blue-100 focus:border-blue-500 outline-none transition-all"
+                    >
+                      <option value="personal">Personal</option>
+                      <option value="meetings">Meetings</option>
+                      <option value="reminders">Reminders</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="flex items-start gap-6 text-gray-600">
                   <div className="mt-2"><AlignLeft size={20} className="text-gray-400" /></div>
                   <div className="flex-1 space-y-1">
                     <label className="text-xs font-bold text-gray-400 uppercase tracking-widest ml-1">Description</label>
@@ -122,6 +160,12 @@ export default function EventModal({ isOpen, onClose, selectedDate, onSave, even
                     />
                   </div>
                 </div>
+
+                {validationMessage && (
+                  <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-700">
+                    {validationMessage}
+                  </div>
+                )}
               </div>
 
               <div className="flex justify-end gap-3 pt-4 border-t border-gray-50">

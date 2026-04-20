@@ -1,4 +1,30 @@
-import { format, startOfMonth, endOfMonth, startOfWeek, endOfWeek, eachDayOfInterval, isSameMonth, isSameDay, addDays, startOfDay, eachHourOfInterval, addHours } from 'date-fns';
+import { format, startOfMonth, endOfMonth, startOfWeek, endOfWeek, eachDayOfInterval, isSameMonth, isSameDay, addDays, startOfDay, addHours, isAfter } from 'date-fns';
+
+const eventTheme = {
+  personal: {
+    month: 'bg-blue-50 border-blue-600 text-blue-800',
+    block: 'bg-blue-50 border-blue-600 text-blue-900',
+    text: 'text-blue-700',
+  },
+  meetings: {
+    month: 'bg-emerald-50 border-emerald-600 text-emerald-800',
+    block: 'bg-emerald-50 border-emerald-600 text-emerald-900',
+    text: 'text-emerald-700',
+  },
+  reminders: {
+    month: 'bg-amber-50 border-amber-500 text-amber-900',
+    block: 'bg-amber-50 border-amber-500 text-amber-950 ring-1 ring-amber-200',
+    text: 'text-amber-700',
+  },
+};
+
+function getEventTheme(event) {
+  return eventTheme[event.category || 'meetings'] || eventTheme.meetings;
+}
+
+function isPendingReminder(event) {
+  return (event.category || 'meetings') === 'reminders' && isAfter(new Date(event.start_time), new Date());
+}
 
 export function MonthView({ currentDate, events, onDateClick }) {
   const monthStart = startOfMonth(currentDate);
@@ -19,7 +45,7 @@ export function MonthView({ currentDate, events, onDateClick }) {
         ))}
       </div>
       <div className="flex-1 grid grid-cols-7 grid-rows-5 overflow-auto">
-        {days.map((day, idx) => {
+        {days.map((day) => {
           const dayEvents = events.filter(e => isSameDay(new Date(e.start_time), day));
           return (
             <div
@@ -36,15 +62,19 @@ export function MonthView({ currentDate, events, onDateClick }) {
                   {format(day, 'd')}
                 </span>
                 <div className="w-full flex flex-col gap-1 px-1">
-                  {dayEvents.map(event => (
-                    <div 
-                      key={event.id} 
-                      className="text-[10px] px-2 py-1 bg-blue-50 border-l-4 border-blue-600 text-blue-800 rounded-sm truncate hover:bg-blue-100 transition-colors font-medium"
-                      title={event.title}
-                    >
-                      {event.title}
-                    </div>
-                  ))}
+                  {dayEvents.map(event => {
+                    const theme = getEventTheme(event);
+                    return (
+                      <div 
+                        key={event.id} 
+                        className={`text-[10px] px-2 py-1 border-l-4 rounded-sm truncate transition-colors font-medium ${theme.month} ${isPendingReminder(event) ? 'shadow-sm' : ''}`}
+                        title={`${event.title} - ${event.description || ''}`}
+                      >
+                        {event.title}
+                        {isPendingReminder(event) ? ` • ${format(new Date(event.start_time), 'h:mm a')}` : ''}
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
             </div>
@@ -78,14 +108,14 @@ export function WeekView({ currentDate, events, onSlotClick }) {
         <div className="flex flex-col relative">
           {hours.map(hour => (
             <div key={hour} className="flex h-20 border-b border-gray-50">
-              <div className="w-16 flex-shrink-0 text-[10px] text-gray-400 text-right pr-4 pt-[-4px] font-medium">
+              <div className="w-16 flex-shrink-0 text-[10px] text-gray-400 text-right pr-4 font-medium">
                 {hour === 0 ? '' : format(addHours(startOfDay(new Date()), hour), 'h a')}
               </div>
               {days.map(day => {
                 const slotStart = addHours(startOfDay(day), hour);
                 const slotEvents = events.filter(e => {
-                  const eStart = new Date(e.start_time);
-                  return isSameDay(eStart, day) && eStart.getHours() === hour;
+                  const eventStart = new Date(e.start_time);
+                  return isSameDay(eventStart, day) && eventStart.getHours() === hour;
                 });
                 
                 return (
@@ -94,15 +124,21 @@ export function WeekView({ currentDate, events, onSlotClick }) {
                     onClick={() => onSlotClick(slotStart)}
                     className="flex-1 border-r border-gray-50 relative hover:bg-blue-50/30 cursor-pointer transition-colors"
                   >
-                    {slotEvents.map(event => (
-                      <div 
-                        key={event.id}
-                        className="absolute inset-x-1 top-1 bg-blue-50 border-l-4 border-blue-600 rounded-sm p-1.5 z-10 shadow-sm"
-                      >
-                        <div className="text-[10px] font-bold text-blue-900 truncate">{event.title}</div>
-                        <div className="text-[9px] text-blue-700 font-medium">{format(new Date(event.start_time), 'h:mm a')}</div>
-                      </div>
-                    ))}
+                    {slotEvents.map(event => {
+                      const theme = getEventTheme(event);
+                      return (
+                        <div 
+                          key={event.id}
+                          className={`absolute inset-x-1 top-1 border-l-4 rounded-sm p-1.5 z-10 shadow-sm ${theme.block}`}
+                        >
+                          <div className="text-[10px] font-bold truncate">{event.title}</div>
+                          <div className={`text-[9px] font-medium ${theme.text}`}>
+                            {format(new Date(event.start_time), 'h:mm a')}
+                            {isPendingReminder(event) ? ' - Reminder' : ''}
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
                 );
               })}
@@ -134,8 +170,8 @@ export function DayView({ currentDate, events, onSlotClick }) {
           {hours.map(hour => {
             const slotStart = addHours(startOfDay(currentDate), hour);
             const slotEvents = events.filter(e => {
-              const eStart = new Date(e.start_time);
-              return isSameDay(eStart, currentDate) && eStart.getHours() === hour;
+              const eventStart = new Date(e.start_time);
+              return isSameDay(eventStart, currentDate) && eventStart.getHours() === hour;
             });
 
             return (
@@ -147,15 +183,26 @@ export function DayView({ currentDate, events, onSlotClick }) {
                   onClick={() => onSlotClick(slotStart)}
                   className="flex-1 relative hover:bg-blue-50/20 cursor-pointer transition-colors"
                 >
-                  {slotEvents.map(event => (
-                    <div 
-                      key={event.id}
-                      className="absolute inset-x-4 top-2 bg-blue-50 border-l-4 border-blue-600 rounded-lg p-4 z-10 shadow-md transform hover:scale-[1.01] transition-all"
-                    >
-                      <div className="text-sm font-bold text-blue-900">{event.title}</div>
-                      <div className="text-xs text-blue-700 mt-1 font-medium italic opacity-80">{format(new Date(event.start_time), 'h:mm a')} - {event.description}</div>
-                    </div>
-                  ))}
+                  {slotEvents.map(event => {
+                    const theme = getEventTheme(event);
+                    return (
+                      <div 
+                        key={event.id}
+                        className={`absolute inset-x-4 top-2 border-l-4 rounded-lg p-4 z-10 shadow-md transform hover:scale-[1.01] transition-all ${theme.block}`}
+                      >
+                        <div className="text-sm font-bold">{event.title}</div>
+                        <div className={`text-xs mt-1 font-medium italic opacity-90 ${theme.text}`}>
+                          {format(new Date(event.start_time), 'h:mm a')}
+                          {event.description ? ` - ${event.description}` : ''}
+                        </div>
+                        {isPendingReminder(event) && (
+                          <div className="text-[11px] font-semibold text-amber-800 mt-2">
+                            Pending reminder for {format(new Date(event.start_time), 'MMM d, yyyy')}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
             );

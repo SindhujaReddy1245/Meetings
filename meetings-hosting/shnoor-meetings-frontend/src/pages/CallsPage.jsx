@@ -1,8 +1,8 @@
-import { Search, Clock3, User } from 'lucide-react';
+import { Search, Clock3, User, X } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import MeetingHeader from '../components/MeetingHeader';
 import MeetingSidebar from '../components/MeetingSidebar';
-import { formatDateTime, formatDuration, getCallHistory } from '../utils/meetingUtils';
+import { formatDateTime, formatDuration, getCallHistory, removeCallHistoryEntry } from '../utils/meetingUtils';
 
 export default function CallsPage() {
   const [searchTerm, setSearchTerm] = useState('');
@@ -28,6 +28,11 @@ export default function CallsPage() {
       `${entry.name} ${entry.roomId}`.toLowerCase().includes(searchTerm.toLowerCase())
     )
   ), [callHistory, searchTerm]);
+
+  const handleRemoveHistory = (sessionId) => {
+    removeCallHistoryEntry(sessionId);
+    setCallHistory(getCallHistory());
+  };
 
   return (
     <div className="flex flex-col h-screen bg-white">
@@ -87,6 +92,14 @@ export default function CallsPage() {
                           <InfoBlock label="Time in Meeting" value={formatDuration(duration)} />
                         </div>
                       </div>
+
+                      <button
+                        onClick={() => handleRemoveHistory(call.sessionId)}
+                        className="self-start rounded-full p-2 text-gray-400 hover:bg-red-50 hover:text-red-600 transition-colors"
+                        title="Remove history"
+                      >
+                        <X size={18} />
+                      </button>
                     </div>
                   </div>
                 );
