@@ -1,0 +1,21 @@
+# dependencies
+node_modules/
+
+# logs
+*.log
+
+# environment files
+.env
+
+# build outputs
+dist/
+build/
+.vite/
+
+# Python virtual environment (VERY IMPORTANT for your case)
+venv/
+shnoor-meetings-backend/venv/
+
+# OS files (optional but good)
+.DS_Store
+Thumbs.db
