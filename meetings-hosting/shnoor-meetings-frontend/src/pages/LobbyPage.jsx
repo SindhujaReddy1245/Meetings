@@ -48,6 +48,7 @@ export default function LobbyPage() {
   } = useWebRTC(roomId, { acquireMedia: false, autoJoin: false, initialRole: resolvedRole });
 
   const toastTimeoutRef = useRef(null);
+  const joinMeetingRef = useRef(null);
 
   useEffect(() => {
     const params = new URLSearchParams(location.search);
@@ -182,7 +183,7 @@ export default function LobbyPage() {
     const handleAdmitted = (e) => {
       if (e.detail.roomId === roomId) {
         setIsWaiting(false);
-        joinMeeting();
+        joinMeetingRef.current?.();
       }
     };
     const handleDenied = (e) => {
@@ -210,12 +211,15 @@ export default function LobbyPage() {
   const joinMeeting = () => {
     const trimmedName = participantName.trim() || currentUser?.name || (resolvedRole === 'host' ? 'Host' : 'Guest');
     sessionStorage.setItem(`meeting_name_${roomId}`, trimmedName);
+    sessionStorage.setItem(`meeting_admitted_${roomId}`, 'true');
     savePreJoinMediaState(roomId, { audioEnabled: isMicOn, videoEnabled: isVideoOn });
     if (stream) {
       stream.getTracks().forEach(track => track.stop());
     }
     navigate(`/room/${roomId}`);
   };
+
+  joinMeetingRef.current = joinMeeting;
 
   return (
     <div className="flex flex-col h-screen bg-white font-sans overflow-hidden transition-all">

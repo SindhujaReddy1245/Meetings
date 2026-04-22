@@ -9,7 +9,7 @@ import { getCurrentUser } from '../utils/currentUser';
 export default function MeetingRoom() {
   const { id: roomId } = useParams();
   const navigate = useNavigate();
-  const isAdmitted = sessionStorage.getItem(`meeting_admitted_${roomId}`) === 'true';
+  const [isAdmitted] = useState(() => sessionStorage.getItem(`meeting_admitted_${roomId}`) === 'true');
   const normalizedCurrentEmail = (getCurrentUser()?.email || '').trim().toLowerCase();
   const storedHostEmail = (localStorage.getItem(`meeting_host_${roomId}`) || '').trim().toLowerCase();
   const isStoredHost = Boolean(normalizedCurrentEmail && storedHostEmail && normalizedCurrentEmail === storedHostEmail);
