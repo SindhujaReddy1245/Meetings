@@ -476,38 +476,51 @@ export function useWebRTC(roomId, options = {}) {
     let isMounted = true;
 
     const startConnection = async () => {
-      let stream = null;
+      let stream = new MediaStream();
 
       try {
         if (acquireMedia) {
-          const constraints = getPreferredMediaConstraints();
-          const wantsAudio = constraints.audio !== false;
-          const wantsVideo = constraints.video !== false;
+          try {
+            const constraints = getPreferredMediaConstraints();
+            const wantsAudio = constraints.audio !== false;
+            const wantsVideo = constraints.video !== false;
 
-          if (wantsAudio || wantsVideo) {
-            stream = await navigator.mediaDevices.getUserMedia(constraints);
-          } else {
-            stream = new MediaStream();
+            if (wantsAudio || wantsVideo) {
+              stream = await navigator.mediaDevices.getUserMedia(constraints);
+            }
+
+            const audioTrack = stream.getAudioTracks()[0];
+            const videoTrack = stream.getVideoTracks()[0];
+
+            if (audioTrack) {
+              audioTrack.enabled = initialMediaState.current.audioEnabled;
+            }
+            if (videoTrack) {
+              videoTrack.enabled = initialMediaState.current.videoEnabled;
+            }
+
+            originalStream.current = stream;
+            activeStreamsRef.current.push(stream);
+
+            if (isMounted) {
+              setLocalStream(stream);
+              setIsAudioEnabled(audioTrack ? audioTrack.enabled : false);
+              setIsVideoEnabled(videoTrack ? videoTrack.enabled : false);
+            }
+          } catch (mediaAcquisitionError) {
+            console.error('Error accessing media devices.', mediaAcquisitionError);
+            originalStream.current = stream;
+            activeStreamsRef.current.push(stream);
+
+            if (isMounted) {
+              setLocalStream(stream);
+              setIsAudioEnabled(false);
+              setIsVideoEnabled(false);
+              setMediaError(mediaAcquisitionError.name === 'NotAllowedError' ? 'Permission Denied' : 'Media Device Error');
+            }
           }
-
-          const audioTrack = stream.getAudioTracks()[0];
-          const videoTrack = stream.getVideoTracks()[0];
-
-          if (audioTrack) {
-            audioTrack.enabled = initialMediaState.current.audioEnabled;
-          }
-          if (videoTrack) {
-            videoTrack.enabled = initialMediaState.current.videoEnabled;
-          }
-
+        } else {
           originalStream.current = stream;
-          activeStreamsRef.current.push(stream);
-
-          if (isMounted) {
-            setLocalStream(stream);
-            setIsAudioEnabled(audioTrack ? audioTrack.enabled : false);
-            setIsVideoEnabled(videoTrack ? videoTrack.enabled : false);
-          }
         }
 
         ws.current = new WebSocket(buildWebSocketUrl(`/ws/${roomId}/${clientId.current}`));
@@ -539,7 +552,7 @@ export function useWebRTC(roomId, options = {}) {
       } catch (error) {
         console.error('Error starting WebRTC connection.', error);
         if (isMounted) {
-          setMediaError(error.name === 'NotAllowedError' ? 'Permission Denied' : 'Media Device Error');
+          setMediaError((current) => current || (error.name === 'NotAllowedError' ? 'Permission Denied' : 'Media Device Error'));
         }
       }
     };

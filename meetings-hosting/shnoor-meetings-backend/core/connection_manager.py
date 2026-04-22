@@ -15,6 +15,7 @@ class ConnectionManager:
         self.connection_users: Dict[str, Dict[WebSocket, dict]] = {}
         self.waiting_requests: Dict[str, Dict[str, dict]] = {}
         self.accepted_participants: Dict[str, set[str]] = {}
+        self.registered_meetings: Dict[str, dict] = {}
 
     async def connect(self, websocket: WebSocket, room_id: str, client_id: str):
         await websocket.accept()
@@ -148,6 +149,20 @@ class ConnectionManager:
 
     def is_participant_accepted(self, room_id: str, client_id: str):
         return client_id in self.accepted_participants.get(room_id, set())
+
+    def register_meeting(self, room_id: str, host_id: str | None = None, host_email: str | None = None, host_name: str | None = None):
+        current = self.registered_meetings.get(room_id, {})
+        self.registered_meetings[room_id] = {
+            **current,
+            "room_id": room_id,
+            "host_id": host_id or current.get("host_id"),
+            "host_email": host_email or current.get("host_email"),
+            "host_name": host_name or current.get("host_name"),
+            "valid": True,
+        }
+
+    def get_registered_meeting(self, room_id: str):
+        return self.registered_meetings.get(room_id)
 
     def get_joined_participants(self, room_id: str):
         participants = []
