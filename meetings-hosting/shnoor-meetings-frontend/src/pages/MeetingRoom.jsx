@@ -33,6 +33,7 @@ export default function MeetingRoom() {
     displayName,
     isAudioEnabled,
     isVideoEnabled,
+    localClientId,
   } = useWebRTC(roomId, { autoJoin: isAdmitted || isStoredHost });
 
   const [isChatOpen, setIsChatOpen] = useState(false);
@@ -44,6 +45,7 @@ export default function MeetingRoom() {
   const [chatInput, setChatInput] = useState('');
   const messagesEndRef = useRef(null);
   const latestJoinRequest = activeJoinRequests[0] || null;
+  const inCallParticipantIds = Object.keys(participantsMetadata).filter((peerId) => peerId !== localClientId);
 
   useEffect(() => {
     if (isHost && activeJoinRequests.length > prevJoinRequestsCount.current) {
@@ -137,7 +139,7 @@ export default function MeetingRoom() {
         </div>
         <div className="flex items-center text-gray-400">
           <Users size={20} className="mr-2" /> 
-          <span className="font-medium">{1 + Object.keys(remoteStreams).length}</span>
+          <span className="font-medium">{1 + inCallParticipantIds.length}</span>
         </div>
       </header>
 
@@ -333,7 +335,7 @@ export default function MeetingRoom() {
                       {displayName || 'You'} {isHost ? '(Host)' : '(You)'}
                     </span>
                   </div>
-                  {Object.keys(remoteStreams).map(peerId => (
+                  {inCallParticipantIds.map(peerId => (
                     <div key={peerId} className="flex items-center gap-3 py-2">
                       <div className="w-8 h-8 rounded-full bg-gray-600 flex items-center justify-center text-white text-xs font-bold">
                         {(participantsMetadata[peerId]?.name || 'Participant').charAt(0)}

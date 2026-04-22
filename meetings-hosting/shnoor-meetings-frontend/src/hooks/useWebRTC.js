@@ -273,6 +273,17 @@ export function useWebRTC(roomId, options = {}) {
           return;
         }
 
+        setParticipantsMetadata((prev) => ({
+          ...prev,
+          [peerId]: {
+            ...prev[peerId],
+            name: data.name || prev[peerId]?.name || 'Participant',
+            role: data.role || prev[peerId]?.role || 'participant',
+            isHandRaised: prev[peerId]?.isHandRaised || false,
+            isSharingScreen: prev[peerId]?.isSharingScreen || false,
+          },
+        }));
+
         await pcOffer.setRemoteDescription(new RTCSessionDescription(data.offer));
         const answer = await pcOffer.createAnswer();
         await pcOffer.setLocalDescription(answer);
@@ -708,5 +719,6 @@ export function useWebRTC(roomId, options = {}) {
     displayName: displayName.current,
     isAudioEnabled,
     isVideoEnabled,
+    localClientId: clientId.current,
   };
 }
