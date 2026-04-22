@@ -1,14 +1,13 @@
 const apiBaseUrl = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/$/, '');
 const wsBaseUrl = (import.meta.env.VITE_WS_BASE_URL || '').replace(/\/$/, '');
-const fallbackApiBaseUrl = 'https://meetings-vr93.onrender.com';
-const fallbackWebSocketBaseUrl = 'wss://meetings-vr93.onrender.com';
 
 function getDefaultApiBaseUrl() {
-  return fallbackApiBaseUrl;
+  return window.location.origin.replace(/\/$/, '');
 }
 
 function getDefaultWebSocketBaseUrl() {
-  return fallbackWebSocketBaseUrl;
+  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  return `${protocol}//${window.location.host}`;
 }
 
 export function buildApiUrl(path) {
@@ -26,10 +25,5 @@ export function buildWebSocketUrl(path) {
   }
 
   const resolvedWsBaseUrl = wsBaseUrl || getDefaultWebSocketBaseUrl();
-  if (resolvedWsBaseUrl) {
-    return `${resolvedWsBaseUrl}${path}`;
-  }
-
-  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-  return `${protocol}//${window.location.host}${path}`;
+  return `${resolvedWsBaseUrl}${path}`;
 }

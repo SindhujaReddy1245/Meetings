@@ -15,7 +15,8 @@ export default function MeetingControls({
   isAudioOn,
   toggleChatVisibility, 
   togglePeopleVisibility,
-  hasUnreadMessages 
+  hasUnreadMessages,
+  waitingCount = 0,
 }) {
   const navigate = useNavigate();
 
@@ -78,9 +79,14 @@ export default function MeetingControls({
       <button
         onClick={togglePeopleVisibility}
         title="Toggle People/Lobby"
-        className={`${btnBase} bg-gray-700 hover:bg-gray-600 text-white hidden md:flex`}
+        className={`${btnBase} ${waitingCount > 0 ? 'bg-blue-600 hover:bg-blue-500' : 'bg-gray-700 hover:bg-gray-600'} text-white hidden md:flex relative`}
       >
         <Users size={22} />
+        {waitingCount > 0 && (
+          <span className="absolute -top-1 -right-1 min-w-[1.25rem] h-5 px-1 rounded-full bg-red-500 text-white text-[11px] font-bold flex items-center justify-center">
+            {waitingCount}
+          </span>
+        )}
       </button>
 
       <button
