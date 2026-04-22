@@ -36,7 +36,7 @@ export default function MeetingRoom() {
     isVideoEnabled,
     localClientId,
   } = useWebRTC(roomId, {
-    autoJoin: isAdmitted || isStoredHost,
+    autoJoin: isAdmitted || isStoredHost || storedRole === 'host',
     initialRole: isStoredHost || storedRole === 'host' ? 'host' : storedRole === 'participant' ? 'participant' : undefined,
   });
 

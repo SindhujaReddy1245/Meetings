@@ -397,27 +397,27 @@ export function useWebRTC(roomId, options = {}) {
 
       case 'join-request':
       case 'join_request':
-        if (isHost.current) {
-          setActiveJoinRequests((prev) => {
-            if (prev.find((request) => request.id === peerId)) {
-              return prev;
-            }
+        isHost.current = true;
+        setIsHostState(true);
+        setActiveJoinRequests((prev) => {
+          if (prev.find((request) => request.id === peerId)) {
+            return prev;
+          }
 
-            return [
-              ...prev,
-              {
-                id: peerId,
-                name: data.name || 'Participant',
-              },
-            ];
-          });
-        }
+          return [
+            ...prev,
+            {
+              id: peerId,
+              name: data.name || 'Participant',
+            },
+          ];
+        });
         break;
 
       case 'waiting-room-sync':
-        if (isHost.current) {
-          setActiveJoinRequests(Array.isArray(data.requests) ? data.requests : []);
-        }
+        isHost.current = true;
+        setIsHostState(true);
+        setActiveJoinRequests(Array.isArray(data.requests) ? data.requests : []);
         break;
 
       case 'admit':
