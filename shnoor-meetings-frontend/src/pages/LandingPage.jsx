@@ -121,7 +121,7 @@ export default function LandingPage() {
       if (data.room_id) {
         markMeetingHost(data.room_id);
         setLaterRoomId(data.room_id);
-        navigate(`/room/${data.room_id}`);
+        setShowInviteModal(true);
       }
     } catch (err) {
       console.error('Failed to create meeting for later:', err);
@@ -147,7 +147,8 @@ export default function LandingPage() {
     if (roomId) {
       sessionStorage.setItem(`meeting_role_${roomId}`, 'participant');
       sessionStorage.setItem(`meeting_name_${roomId}`, displayName);
-      navigate(`/room/${roomId}?role=participant`);
+      sessionStorage.removeItem(`meeting_admitted_${roomId}`);
+      navigate(`/meeting/${roomId}?role=participant`);
     }
   };
 

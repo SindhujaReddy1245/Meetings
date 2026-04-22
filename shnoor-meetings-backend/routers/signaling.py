@@ -1,5 +1,7 @@
 import logging
+
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+
 from core.connection_manager import manager
 from core.database import (
     ensure_meeting_record,
@@ -15,6 +17,31 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
+
+async def sync_waiting_room(room_id: str):
+    await manager.send_to_role(room_id, "host", {
+        "type": "waiting-room-sync",
+        "requests": manager.get_waiting_requests(room_id),
+    })
+
+
+async def sync_joined_participants(room_id: str):
+    await manager.broadcast_to_joined(room_id, {
+        "type": "participant-roster",
+        "participants": manager.get_joined_participants(room_id),
+    })
+
+
+def resolve_host_status(meeting_record: dict, user_id: str | None, email: str | None):
+    meeting_host_email = (meeting_record.get("host_email") or "").strip().lower()
+    normalized_email = (email or "").strip().lower()
+
+    return bool(
+        (meeting_record.get("host_id") and user_id and meeting_record.get("host_id") == user_id)
+        or (meeting_host_email and normalized_email == meeting_host_email)
+    )
+
+
 @router.websocket("/ws/{room_id}/{client_id}")
 async def websocket_endpoint(websocket: WebSocket, room_id: str, client_id: str):
     """
@@ -24,10 +51,8 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, client_id: str)
 
     try:
         while True:
-            # We expect JSON payloads containing signaling data (offers, answers, ice candidates)
-            # or custom messages (like chat).
             data = await websocket.receive_json()
-            
+
             msg_type = data.get("type")
             target_id = data.get("target")
 
@@ -43,16 +68,20 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, client_id: str)
                     email=email,
                 )
                 meeting_record = get_meeting_record(room_id) or {}
-                meeting_host_email = (meeting_record.get("host_email") or "").strip().lower()
-                normalized_email = (email or "").strip().lower()
-                is_meeting_host = bool(
-                    (meeting_record.get("host_id") and meeting_record.get("host_id") == user_id)
-                    or (meeting_host_email and normalized_email == meeting_host_email)
-                )
+                is_meeting_host = resolve_host_status(meeting_record, user_id, email)
+
                 if not meeting_record and requested_role == "host":
                     role = "host"
                 else:
                     role = "host" if is_meeting_host else "participant"
+
+                if role == "participant" and not manager.is_participant_accepted(room_id, client_id):
+                    await manager.send_to_websocket(websocket, {
+                        "type": "join-blocked",
+                        "reason": "not-admitted",
+                    })
+                    continue
+
                 meeting_id = ensure_meeting_record(
                     room_id,
                     host_user_id=user_id if role == "host" else None,
@@ -64,16 +93,21 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, client_id: str)
                     upsert_participant_record(meeting_id, user_id, role=role, joined_at=joined_at)
 
                 manager.set_connection_user(room_id, websocket, {
+                    "client_id": client_id,
                     "user_id": user_id,
                     "email": email,
                     "name": name,
                     "role": role,
+                    "joined": True,
+                    "isHandRaised": False,
+                    "isSharingScreen": False,
                 })
 
                 if role == "host":
+                    manager.add_accepted_participant(room_id, client_id)
                     await manager.send_to_websocket(websocket, {
                         "type": "waiting-room-sync",
-                        "requests": manager.get_waiting_requests(room_id)
+                        "requests": manager.get_waiting_requests(room_id),
                     })
 
                 join_message = {
@@ -82,34 +116,84 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, client_id: str)
                     "client_id": client_id,
                     "name": name,
                     "role": role,
-                    "message": f"User {client_id} joined the meeting"
+                    "message": f"User {client_id} joined the meeting",
                 }
-                await manager.broadcast_to_room(room_id, join_message, sender=websocket)
+                await manager.broadcast_to_joined(room_id, join_message, sender=websocket)
+                await sync_joined_participants(room_id)
                 continue
 
-            if msg_type == "host-ready":
+            if msg_type in {"host-ready", "host_join"}:
+                host_name = data.get("name") or "Host"
+                host_email = data.get("email")
+                host_user_id = data.get("user_id")
+                meeting_record = get_meeting_record(room_id) or {}
+
+                if not meeting_record or resolve_host_status(meeting_record, host_user_id, host_email):
+                    manager.set_connection_user(room_id, websocket, {
+                        "client_id": client_id,
+                        "user_id": host_user_id,
+                        "email": host_email,
+                        "name": host_name,
+                        "role": "host",
+                        "joined": False,
+                    })
+
                 await manager.send_to_websocket(websocket, {
                     "type": "waiting-room-sync",
-                    "requests": manager.get_waiting_requests(room_id)
+                    "requests": manager.get_waiting_requests(room_id),
                 })
                 continue
 
-            if msg_type == "join-request":
-                manager.add_waiting_request(room_id, client_id, data.get("name", "Participant"))
+            if msg_type in {"join-request", "ask_to_join"}:
+                requester_name = data.get("name", "Participant")
+                manager.set_connection_user(room_id, websocket, {
+                    "client_id": client_id,
+                    "user_id": data.get("user_id"),
+                    "email": data.get("email"),
+                    "name": requester_name,
+                    "role": "participant",
+                    "joined": False,
+                })
+                manager.add_waiting_request(room_id, client_id, requester_name)
+                await manager.send_to_role(room_id, "host", {
+                    "type": "join_request",
+                    "sender": client_id,
+                    "client_id": client_id,
+                    "name": requester_name,
+                })
+                await sync_waiting_room(room_id)
+                continue
 
-            if msg_type in {"admit", "deny"} and target_id:
+            if msg_type in {"admit", "accept_user", "deny"} and target_id:
                 manager.remove_waiting_request(room_id, target_id)
+                if msg_type in {"admit", "accept_user"}:
+                    manager.add_accepted_participant(room_id, target_id)
+                await sync_waiting_room(room_id)
+                await manager.send_to_client(room_id, target_id, {
+                    "type": "accepted" if msg_type in {"admit", "accept_user"} else "deny",
+                    "sender": client_id,
+                    **data,
+                })
+                continue
+
+            if msg_type == "participant-update":
+                manager.set_connection_user(room_id, websocket, {
+                    "name": data.get("name"),
+                    "role": data.get("role"),
+                    "isHandRaised": data.get("isHandRaised"),
+                    "isSharingScreen": data.get("isSharingScreen"),
+                })
 
             message_to_send = {
                 "type": msg_type,
                 "sender": client_id,
-                **data
+                **data,
             }
 
-            if target_id:
-                pass
+            await manager.broadcast_to_joined(room_id, message_to_send, sender=websocket)
 
-            await manager.broadcast_to_room(room_id, message_to_send, sender=websocket)
+            if msg_type == "participant-update":
+                await sync_joined_participants(room_id)
 
             if msg_type == "chat":
                 user_meta = manager.get_connection_user(room_id, websocket) or {}
@@ -118,37 +202,41 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, client_id: str)
                 if sender_id and meeting_id and data.get("text"):
                     save_chat_message(meeting_id, sender_id, data.get("text"), sent_at=data.get("sent_at"))
 
-            # --- AI Chatbot Interception ---
             if msg_type == "chat" and data.get("text", "").lower().startswith("@ai"):
-                # Simulate answering as Shnoor AI
                 prompt = data.get("text")[3:].strip()
                 ai_response_text = f"Beep boop! This is Shnoor AI. You asked: '{prompt}'. (Insert LLM logic here!)"
-                
-                # Send the response back to EVERYONE in the room (including the sender of the prompt)
+
                 ai_message = {
                     "type": "chat",
-                    "sender": "Shnoor AI ✨",
-                    "text": ai_response_text
+                    "sender": "Shnoor AI",
+                    "text": ai_response_text,
                 }
-                
-                # We broadcast to others
-                await manager.broadcast_to_room(room_id, ai_message)
-                # And we must explicitly send it to the requesting websocket too since we omitted it in broadcast
+
+                await manager.broadcast_to_joined(room_id, ai_message)
                 await websocket.send_json(ai_message)
     except WebSocketDisconnect:
         metadata = manager.disconnect(websocket, room_id) or {}
+        removed_request = manager.remove_waiting_request(room_id, client_id)
         if metadata.get("user_id"):
             mark_participant_left(room_id, metadata["user_id"])
-        # Notify others that this user left
-        await manager.broadcast_to_room(room_id, {
-            "type": "user-left",
-            "sender": client_id,
-            "client_id": client_id,
-            "message": f"User {client_id} left the meeting"
-        })
+        if removed_request:
+            await sync_waiting_room(room_id)
+        if metadata.get("joined"):
+            await manager.broadcast_to_joined(room_id, {
+                "type": "user-left",
+                "sender": client_id,
+                "client_id": client_id,
+                "message": f"User {client_id} left the meeting",
+            })
+            await sync_joined_participants(room_id)
         logger.info(f"Client {client_id} disconnected from room {room_id}")
     except Exception as e:
         logger.error(f"Error in websocket for client {client_id}: {e}")
         metadata = manager.disconnect(websocket, room_id) or {}
+        removed_request = manager.remove_waiting_request(room_id, client_id)
         if metadata.get("user_id"):
             mark_participant_left(room_id, metadata["user_id"])
+        if removed_request:
+            await sync_waiting_room(room_id)
+        if metadata.get("joined"):
+            await sync_joined_participants(room_id)

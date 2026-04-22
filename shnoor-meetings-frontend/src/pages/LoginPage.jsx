@@ -1,9 +1,12 @@
-import { GoogleLogin } from '@react-oauth/google';
-import { jwtDecode } from 'jwt-decode';
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { saveUser } from '../services/userService';
 import { ensureFrontendUserId } from '../utils/currentUser';
+
+const backendAuthBaseUrl = (
+  import.meta.env.VITE_API_BASE_URL ||
+  'https://meetings-vr93.onrender.com'
+).replace(/\/$/, '');
 
 export default function LoginPage() {
   const navigate = useNavigate();
@@ -17,6 +20,39 @@ export default function LoginPage() {
     }
   }, [navigate]);
 
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const encodedUser = params.get('user');
+    const authSuccess = params.get('auth_success');
+    const authError = params.get('auth_error');
+
+    if (authError) {
+      alert(`Google login failed: ${authError}`);
+      window.history.replaceState({}, document.title, '/login');
+      return;
+    }
+
+    if (!authSuccess || !encodedUser) {
+      return;
+    }
+
+    const completeGoogleLogin = async () => {
+      try {
+        const decodedPayload = atob(encodedUser.replace(/-/g, '+').replace(/_/g, '/'));
+        const user = JSON.parse(decodedPayload);
+        await persistUser(user);
+        window.history.replaceState({}, document.title, '/login');
+        navigate('/', { replace: true });
+      } catch (error) {
+        console.error('Failed to complete Google login.', error);
+        alert('Google login could not be completed.');
+        window.history.replaceState({}, document.title, '/login');
+      }
+    };
+
+    completeGoogleLogin();
+  }, [navigate]);
+
   const persistUser = async (userData) => {
     const normalizedUser = ensureFrontendUserId(userData);
 
@@ -25,20 +61,6 @@ export default function LoginPage() {
     } catch (error) {
       console.error('Error saving user:', error);
     }
-  };
-
-  const handleGoogleSuccess = async (response) => {
-    const user = jwtDecode(response.credential);
-    const userData = {
-      id: user.email,
-      firebaseUid: user.sub,
-      name: user.name,
-      email: user.email,
-      picture: user.picture || `https://ui-avatars.com/api/?name=${encodeURIComponent(user.name)}`,
-    };
-
-    await persistUser(userData);
-    window.location.href = '/';
   };
 
   const handleLogin = async (event) => {
@@ -58,6 +80,10 @@ export default function LoginPage() {
 
     await persistUser(userData);
     navigate('/');
+  };
+
+  const handleGoogleLogin = () => {
+    window.location.href = `${backendAuthBaseUrl}/auth/google/login`;
   };
 
   return (
@@ -99,7 +125,13 @@ export default function LoginPage() {
         </div>
 
         <div className="flex justify-center">
-          <GoogleLogin onSuccess={handleGoogleSuccess} onError={() => console.log('Login Failed')} />
+          <button
+            type="button"
+            onClick={handleGoogleLogin}
+            className="rounded-xl border border-gray-300 bg-white px-5 py-3 text-sm font-medium text-gray-700 shadow-sm transition hover:bg-gray-50"
+          >
+            Sign in with Google
+          </button>
         </div>
       </div>
     </div>

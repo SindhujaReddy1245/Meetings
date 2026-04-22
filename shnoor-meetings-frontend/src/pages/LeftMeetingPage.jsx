@@ -69,7 +69,7 @@ export default function LeftMeetingPage() {
 
         <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
           <button
-            onClick={() => navigate(`/room/${roomId}`)}
+            onClick={() => navigate(`/meeting/${roomId}`)}
             className="w-full sm:w-auto px-8 py-2.5 bg-white border border-gray-300 rounded-full text-blue-600 font-semibold hover:bg-gray-50 transition-all shadow-sm flex items-center justify-center gap-2"
           >
             <RefreshCcw size={18} />
