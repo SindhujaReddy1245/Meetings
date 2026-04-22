@@ -1,24 +1,25 @@
 const apiBaseUrl = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/$/, '');
 const wsBaseUrl = (import.meta.env.VITE_WS_BASE_URL || '').replace(/\/$/, '');
+const productionApiFallback = 'https://meetings-vr93.onrender.com';
+const productionWsFallback = 'wss://meetings-vr93.onrender.com';
 
 function getDefaultApiBaseUrl() {
-  if (!import.meta.env.DEV) {
-    return '';
+  const isLocalhost = ['localhost', '127.0.0.1'].includes(window.location.hostname);
+  if (!isLocalhost) {
+    return productionApiFallback;
   }
 
-  const protocol = window.location.protocol;
-  const hostname = window.location.hostname || '127.0.0.1';
-  return `${protocol}//${hostname}:8000`;
+  return window.location.origin.replace(/\/$/, '');
 }
 
 function getDefaultWebSocketBaseUrl() {
-  if (!import.meta.env.DEV) {
-    return '';
+  const isLocalhost = ['localhost', '127.0.0.1'].includes(window.location.hostname);
+  if (!isLocalhost) {
+    return productionWsFallback;
   }
 
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-  const hostname = window.location.hostname || '127.0.0.1';
-  return `${protocol}//${hostname}:8000`;
+  return `${protocol}//${window.location.host}`;
 }
 
 export function buildApiUrl(path) {
@@ -36,10 +37,5 @@ export function buildWebSocketUrl(path) {
   }
 
   const resolvedWsBaseUrl = wsBaseUrl || getDefaultWebSocketBaseUrl();
-  if (resolvedWsBaseUrl) {
-    return `${resolvedWsBaseUrl}${path}`;
-  }
-
-  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-  return `${protocol}//${window.location.host}${path}`;
+  return `${resolvedWsBaseUrl}${path}`;
 }
