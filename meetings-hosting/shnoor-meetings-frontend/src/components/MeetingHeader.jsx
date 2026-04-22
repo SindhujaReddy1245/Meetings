@@ -1,19 +1,21 @@
-import { Menu, HelpCircle, MessageSquare, Settings, Grid, User, X, Info, Monitor, Mic, Video, Check } from 'lucide-react';
+import { Menu, HelpCircle, MessageSquare, Settings, Grid, User, X, Info, Monitor, Mic, Video, Check, LogOut } from 'lucide-react';
 import { format } from 'date-fns';
 import { useEffect, useMemo, useState } from 'react';
 import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { getMeetingPreferences, getTranslator, saveMeetingPreferences } from '../utils/meetingUtils';
 
-export default function MeetingHeader({ onOpenChatbot, hideChatButton = false }) {
+export default function MeetingHeader({ onOpenChatbot, toggleSidebar }) {
   const navigate = useNavigate();
   const location = useLocation();
   const [currentTime, setCurrentTime] = useState(() => format(new Date(), 'HH:mm - EEE, d MMM'));
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isHelpOpen, setIsHelpOpen] = useState(false);
-  const [isMenuOpen, setIsMenuOpen] = useState(false);
+  
   const [availableDevices, setAvailableDevices] = useState({ microphones: [], cameras: [] });
   const [expandedPicker, setExpandedPicker] = useState(null);
   const [meetingPreferences, setMeetingPreferences] = useState(getMeetingPreferences);
+  const [isProfileOpen, setIsProfileOpen] = useState(false);
+  const user = JSON.parse(localStorage.getItem('user') || 'null');
 
   useEffect(() => {
     const timer = window.setInterval(() => {
@@ -74,36 +76,35 @@ export default function MeetingHeader({ onOpenChatbot, hideChatButton = false })
     { to: '/calendar', label: t('calendar') },
   ];
 
+  const handleLogout = () => {
+    localStorage.removeItem("user");
+    window.location.href = "/login";
+  };
+
   return (
     <>
       <header className="flex items-center justify-between px-4 py-2 bg-white text-gray-700 border-b border-gray-100 h-16 shadow-sm relative z-20">
         <div className="flex items-center gap-2">
-          <div className="relative">
-            <button
-              className="p-2 hover:bg-gray-100 rounded-full transition-colors"
-              onClick={() => setIsMenuOpen((prev) => !prev)}
-              title="Open navigation"
-            >
-              <Menu size={24} />
-            </button>
+        <button
+          onClick={toggleSidebar}
+          className="p-2 hover:bg-gray-100 rounded-full"
+        >
+          <Menu size={24} />
+        </button>
 
-            {isMenuOpen && (
-              <div className="absolute top-12 left-0 w-56 bg-white border border-gray-200 rounded-2xl shadow-xl p-2">
-                {navigationItems.map((item) => (
-                  <NavLink
-                    key={item.to}
-                    to={item.to}
-                    onClick={() => setIsMenuOpen(false)}
-                    className={({ isActive }) => `block rounded-xl px-4 py-3 text-sm font-medium transition-colors ${isActive ? 'bg-blue-50 text-blue-700' : 'text-gray-700 hover:bg-gray-50'}`}
-                  >
-                    {item.label}
-                  </NavLink>
-                ))}
-              </div>
-            )}
+        <div className="flex items-center gap-2 ml-1">
+          <div className="w-10 h-10 overflow-hidden">
+            <img src="/logo.jpg" alt="logo" className="w-full h-full" />
           </div>
 
+          <span className="text-lg md:text-xl text-gray-600">
+            Shnoor{" "}
+            <span className="text-gray-500 hidden sm:inline">
+              International LLC Meetings
+            </span>
+          </span>
         </div>
+      </div>
 
         <div className="flex items-center gap-1">
           <div className="text-gray-500 mr-4 font-medium hidden lg:block">
@@ -118,15 +119,13 @@ export default function MeetingHeader({ onOpenChatbot, hideChatButton = false })
             >
               <HelpCircle size={22} />
             </button>
-            {!hideChatButton && (
-              <button
-                onClick={handleOpenChatbot}
-                className="p-2.5 hover:bg-gray-100 rounded-full text-gray-600 transition-colors"
-                title="Open chatbot"
-              >
-                <MessageSquare size={22} />
-              </button>
-            )}
+            <button
+              onClick={handleOpenChatbot}
+              className="p-2.5 hover:bg-gray-100 rounded-full text-gray-600 transition-colors"
+              title="Open chatbot"
+            >
+              <MessageSquare size={22} />
+            </button>
             <button
               onClick={() => setIsSettingsOpen(true)}
               className="p-2.5 hover:bg-gray-100 rounded-full text-gray-600 transition-colors"
@@ -144,12 +143,49 @@ export default function MeetingHeader({ onOpenChatbot, hideChatButton = false })
             >
               <Grid size={22} />
             </button>
-            <div className="w-10 h-10 bg-emerald-600 rounded-full flex items-center justify-center ml-2 border-2 border-white shadow-sm cursor-pointer">
-              <User size={20} className="text-white" />
+            <div className="relative ml-2">
+              <button
+                className="w-10 h-10 bg-emerald-600 rounded-full flex items-center justify-center border-2 border-white shadow-sm cursor-pointer overflow-hidden"
+                onClick={() => setIsProfileOpen((prev) => !prev)}
+              >
+                {user?.picture ? (
+                  <img src={user.picture} alt={user.name || 'User'} className="w-full h-full object-cover" />
+                ) : (
+                  <User size={20} className="text-white" />
+                )}
+              </button>
+
+              {isProfileOpen && (
+                <div className="absolute right-0 top-12 w-72 rounded-2xl border border-gray-200 bg-white p-4 shadow-xl">
+                  <div className="flex items-center gap-3">
+                    <div className="h-12 w-12 rounded-full bg-emerald-600 overflow-hidden flex items-center justify-center">
+                      {user?.picture ? (
+                        <img src={user.picture} alt={user.name || 'User'} className="w-full h-full object-cover" />
+                      ) : (
+                        <User size={22} className="text-white" />
+                      )}
+                    </div>
+                    <div className="min-w-0">
+                      <div className="font-medium text-gray-800 truncate">{user?.name || 'Guest User'}</div>
+                      <div className="text-sm text-gray-500 truncate">{user?.email || 'No email'}</div>
+                    </div>
+                  </div>
+
+                  <button
+                    onClick={handleLogout}
+                    className="mt-4 flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm font-medium text-red-600 hover:bg-red-50"
+                  >
+                    <LogOut size={16} />
+                    Logout
+                  </button>
+                </div>
+              )}
             </div>
           </div>
         </div>
       </header>
+      
+
 
       {isHelpOpen && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">

@@ -3,6 +3,20 @@ import { X, Clock, AlignLeft, Video, Calendar } from 'lucide-react';
 import { format, addHours, startOfToday, isBefore } from 'date-fns';
 import { motion, AnimatePresence } from 'framer-motion';
 
+function toLocalDateTimeInputValue(value) {
+  if (!value) {
+    return '';
+  }
+
+  const date = new Date(value);
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  const hours = String(date.getHours()).padStart(2, '0');
+  const minutes = String(date.getMinutes()).padStart(2, '0');
+  return `${year}-${month}-${day}T${hours}:${minutes}`;
+}
+
 export default function EventModal({ isOpen, onClose, selectedDate, onSave, event = null }) {
   const [title, setTitle] = useState(event?.title || '');
   const [description, setDescription] = useState(event?.description || '');
@@ -16,8 +30,8 @@ export default function EventModal({ isOpen, onClose, selectedDate, onSave, even
       if (event) {
         setTitle(event.title);
         setDescription(event.description);
-        setStartTime(format(new Date(event.start_time), "yyyy-MM-dd'T'HH:mm"));
-        setEndTime(format(new Date(event.end_time), "yyyy-MM-dd'T'HH:mm"));
+        setStartTime(toLocalDateTimeInputValue(event.start_time));
+        setEndTime(toLocalDateTimeInputValue(event.end_time));
         setCategory(event.category || 'meetings');
         setValidationMessage('');
       } else {
@@ -52,13 +66,13 @@ export default function EventModal({ isOpen, onClose, selectedDate, onSave, even
 
     setValidationMessage('');
     onSave({
-      id: event?.id,
+      id: event?.id || crypto.randomUUID(),
       title: title || '(No title)',
       description,
-      start_time: startTime,
-      end_time: endTime,
+      start_time: new Date(startTime).toISOString(),
+      end_time: new Date(endTime).toISOString(),
       category,
-      room_id: event?.room_id || Math.random().toString(36).substring(7),
+      room_id: category === 'meetings' ? (event?.room_id || crypto.randomUUID()) : null,
     });
   };
 

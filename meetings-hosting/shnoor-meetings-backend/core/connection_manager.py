@@ -13,6 +13,7 @@ class ConnectionManager:
         # Keeps track of the user/client id associated with a websocket for a room
         # Example: {"room1": {websocket: "user_1"}}
         self.user_records: Dict[str, Dict[WebSocket, str]] = {}
+        self.connection_users: Dict[str, Dict[WebSocket, dict]] = {}
         self.waiting_requests: Dict[str, Dict[str, dict]] = {}
 
     async def connect(self, websocket: WebSocket, room_id: str, client_id: str):
@@ -20,6 +21,7 @@ class ConnectionManager:
         if room_id not in self.active_connections:
             self.active_connections[room_id] = []
             self.user_records[room_id] = {}
+            self.connection_users[room_id] = {}
             self.waiting_requests[room_id] = {}
             
         self.active_connections[room_id].append(websocket)
@@ -28,18 +30,26 @@ class ConnectionManager:
         logger.info(f"Client {client_id} joined room {room_id}")
 
     def disconnect(self, websocket: WebSocket, room_id: str):
+        metadata = self.connection_users.get(room_id, {}).get(websocket)
+
         if room_id in self.active_connections:
             if websocket in self.active_connections[room_id]:
                 self.active_connections[room_id].remove(websocket)
             
             if websocket in self.user_records.get(room_id, {}):
                 del self.user_records[room_id][websocket]
+
+            if websocket in self.connection_users.get(room_id, {}):
+                del self.connection_users[room_id][websocket]
                 
             # Clean up empty rooms
             if not self.active_connections[room_id]:
                 del self.active_connections[room_id]
                 del self.user_records[room_id]
+                self.connection_users.pop(room_id, None)
                 self.waiting_requests.pop(room_id, None)
+
+        return metadata
 
     async def broadcast_to_room(self, room_id: str, message: dict, sender: WebSocket = None):
         """
@@ -70,6 +80,19 @@ class ConnectionManager:
             await websocket.send_json(message)
         except Exception as e:
             logger.error(f"Error sending websocket message: {e}")
+
+    def set_connection_user(self, room_id: str, websocket: WebSocket, metadata: dict):
+        if room_id not in self.connection_users:
+            self.connection_users[room_id] = {}
+
+        current = self.connection_users[room_id].get(websocket, {})
+        self.connection_users[room_id][websocket] = {
+            **current,
+            **metadata,
+        }
+
+    def get_connection_user(self, room_id: str, websocket: WebSocket):
+        return self.connection_users.get(room_id, {}).get(websocket)
 
     def add_waiting_request(self, room_id: str, client_id: str, name: str):
         if room_id not in self.waiting_requests:

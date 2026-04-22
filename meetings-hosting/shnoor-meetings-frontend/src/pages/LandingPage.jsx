@@ -7,8 +7,11 @@ import InviteModal from '../components/InviteModal';
 import ChatbotPanel from '../components/ChatbotPanel';
 import { Bot } from 'lucide-react';
 import illustration from '../assets/illustration.png';
+import { buildApiUrl } from '../utils/api';
+import { getCurrentUser } from '../utils/currentUser';
 
 export default function LandingPage() {
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [meetingCode, setMeetingCode] = useState('');
   const [participantName, setParticipantName] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -17,9 +20,16 @@ export default function LandingPage() {
   const [showJoinModal, setShowJoinModal] = useState(false);
   const [isChatbotOpen, setIsChatbotOpen] = useState(false);
   const [laterRoomId, setLaterRoomId] = useState('');
+  const currentUser = getCurrentUser();
   const dropdownRef = useRef(null);
   const navigate = useNavigate();
   const location = useLocation();
+
+  const markMeetingHost = (roomId) => {
+    const normalizedEmail = (currentUser?.email || '').trim().toLowerCase();
+    localStorage.setItem(`meeting_host_${roomId}`, normalizedEmail);
+    sessionStorage.setItem(`meeting_role_${roomId}`, 'host');
+  };
 
   // Close dropdown when clicking outside
   useEffect(() => {
@@ -63,22 +73,29 @@ export default function LandingPage() {
   const handleStartInstantMeeting = async () => {
     setIsLoading(true);
     setShowDropdown(false);
+    const frontendRoomId = crypto.randomUUID();
     try {
-      const response = await fetch('http://localhost:8000/api/meetings/create', {
+      const response = await fetch(buildApiUrl('/api/meetings/create'), {
         method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+           room_id: frontendRoomId,
+           host_id: currentUser?.meetingUserId || null,
+           host_email: currentUser?.email || null,
+           host_name: currentUser?.name || null,
+           firebase_uid: currentUser?.firebaseUid || null,
+        }),
       });
       const data = await response.json();
       if (data.room_id) {
-        localStorage.setItem(`meeting_host_${data.room_id}`, 'true');
-        sessionStorage.setItem(`meeting_role_${data.room_id}`, 'host');
-        navigate(`/room/${data.room_id}`);
+        markMeetingHost(data.room_id);
+        navigate(`/meeting/${data.room_id}`);
       }
     } catch (err) {
       console.error('Failed to create instant meeting:', err);
-      const fallbackRoomId = Math.random().toString(36).substring(7);
-      localStorage.setItem(`meeting_host_${fallbackRoomId}`, 'true');
-      sessionStorage.setItem(`meeting_role_${fallbackRoomId}`, 'host');
-      navigate(`/room/${fallbackRoomId}`);
+      const fallbackRoomId = frontendRoomId;
+      markMeetingHost(fallbackRoomId);
+      navigate(`/meeting/${fallbackRoomId}`);
     } finally {
       setIsLoading(false);
     }
@@ -87,21 +104,29 @@ export default function LandingPage() {
   const handleCreateMeetingLater = async () => {
     setIsLoading(true);
     setShowDropdown(false);
+    const frontendRoomId = crypto.randomUUID();
     try {
-      const response = await fetch('http://localhost:8000/api/meetings/create', {
+      const response = await fetch(buildApiUrl('/api/meetings/create'), {
         method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+           room_id: frontendRoomId,
+           host_id: currentUser?.meetingUserId || null,
+           host_email: currentUser?.email || null,
+           host_name: currentUser?.name || null,
+           firebase_uid: currentUser?.firebaseUid || null,
+        }),
       });
       const data = await response.json();
       if (data.room_id) {
-        localStorage.setItem(`meeting_host_${data.room_id}`, 'true');
-        sessionStorage.setItem(`meeting_role_${data.room_id}`, 'host');
+        markMeetingHost(data.room_id);
+        setLaterRoomId(data.room_id);
         navigate(`/room/${data.room_id}`);
       }
     } catch (err) {
       console.error('Failed to create meeting for later:', err);
-      const fallbackRoomId = Math.random().toString(36).substring(7);
-      localStorage.setItem(`meeting_host_${fallbackRoomId}`, 'true');
-      sessionStorage.setItem(`meeting_role_${fallbackRoomId}`, 'host');
+      const fallbackRoomId = frontendRoomId;
+      markMeetingHost(fallbackRoomId);
       setLaterRoomId(fallbackRoomId);
       setShowInviteModal(true);
     } finally {
@@ -117,7 +142,7 @@ export default function LandingPage() {
   const handleJoinMeeting = (e) => {
     e.preventDefault();
     const roomId = extractRoomId(meetingCode);
-    const displayName = participantName.trim() || 'Guest';
+    const displayName = participantName.trim() || currentUser?.name || 'Guest';
 
     if (roomId) {
       sessionStorage.setItem(`meeting_role_${roomId}`, 'participant');
@@ -128,12 +153,15 @@ export default function LandingPage() {
 
   return (
     <div className="flex flex-col h-screen bg-white">
-      <MeetingHeader onOpenChatbot={() => setIsChatbotOpen(true)} hideChatButton />
+      <MeetingHeader 
+  onOpenChatbot={() => setIsChatbotOpen(true)}
+  toggleSidebar={() => setIsSidebarOpen(prev => !prev)}
+/>
       
       <div className="flex flex-1 overflow-hidden">
-        <MeetingSidebar />
+        {isSidebarOpen && <MeetingSidebar />}
         
-        <main className="flex-1 flex flex-col md:flex-row items-center justify-between px-8 md:px-16 py-12 gap-12 overflow-y-auto">
+        <main className="flex-1 flex flex-col md:flex-row items-center justify-between px-8 md:px-16 py-12 gap-12 overflow-y-auto ml-[60px]">
           {/* Left Column: Call to Action */}
           <div className="flex-1 max-w-xl text-left">
             <h1 className="text-4xl md:text-5xl font-normal text-gray-800 leading-tight mb-6">
@@ -306,7 +334,7 @@ export default function LandingPage() {
         </button>
       )}
 
-      <style jsx>{`
+      <style>{`
         @keyframes bounce-short {
           0%, 100% { transform: translateY(0); }
           50% { transform: translateY(-10%); }

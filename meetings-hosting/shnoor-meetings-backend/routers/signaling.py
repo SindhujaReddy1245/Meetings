@@ -1,6 +1,15 @@
 import logging
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from core.connection_manager import manager
+from core.database import (
+    ensure_meeting_record,
+    get_meeting_record,
+    get_or_create_user,
+    mark_participant_left,
+    normalize_uuid_or_none,
+    save_chat_message,
+    upsert_participant_record,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -23,7 +32,45 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, client_id: str)
             target_id = data.get("target")
 
             if msg_type == "join-room":
-                if data.get("role") == "host":
+                requested_role = (data.get("role") or "participant").strip().lower()
+                name = data.get("name") or ("Host" if requested_role == "host" else "Participant")
+                joined_at = data.get("joined_at")
+                email = data.get("email")
+                user_id = get_or_create_user(
+                    user_id=data.get("user_id") or client_id,
+                    firebase_uid=data.get("firebase_uid"),
+                    name=name,
+                    email=email,
+                )
+                meeting_record = get_meeting_record(room_id) or {}
+                meeting_host_email = (meeting_record.get("host_email") or "").strip().lower()
+                normalized_email = (email or "").strip().lower()
+                is_meeting_host = bool(
+                    (meeting_record.get("host_id") and meeting_record.get("host_id") == user_id)
+                    or (meeting_host_email and normalized_email == meeting_host_email)
+                )
+                if not meeting_record and requested_role == "host":
+                    role = "host"
+                else:
+                    role = "host" if is_meeting_host else "participant"
+                meeting_id = ensure_meeting_record(
+                    room_id,
+                    host_user_id=user_id if role == "host" else None,
+                    title=f"Meeting {str(room_id)[:8]}",
+                    status="active",
+                    started_at=joined_at if role == "host" else None,
+                )
+                if meeting_id:
+                    upsert_participant_record(meeting_id, user_id, role=role, joined_at=joined_at)
+
+                manager.set_connection_user(room_id, websocket, {
+                    "user_id": user_id,
+                    "email": email,
+                    "name": name,
+                    "role": role,
+                })
+
+                if role == "host":
                     await manager.send_to_websocket(websocket, {
                         "type": "waiting-room-sync",
                         "requests": manager.get_waiting_requests(room_id)
@@ -33,8 +80,8 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, client_id: str)
                     "type": "user-joined",
                     "sender": client_id,
                     "client_id": client_id,
-                    "name": data.get("name"),
-                    "role": data.get("role", "participant"),
+                    "name": name,
+                    "role": role,
                     "message": f"User {client_id} joined the meeting"
                 }
                 await manager.broadcast_to_room(room_id, join_message, sender=websocket)
@@ -64,6 +111,13 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, client_id: str)
 
             await manager.broadcast_to_room(room_id, message_to_send, sender=websocket)
 
+            if msg_type == "chat":
+                user_meta = manager.get_connection_user(room_id, websocket) or {}
+                sender_id = normalize_uuid_or_none(user_meta.get("user_id"))
+                meeting_id = normalize_uuid_or_none(room_id)
+                if sender_id and meeting_id and data.get("text"):
+                    save_chat_message(meeting_id, sender_id, data.get("text"), sent_at=data.get("sent_at"))
+
             # --- AI Chatbot Interception ---
             if msg_type == "chat" and data.get("text", "").lower().startswith("@ai"):
                 # Simulate answering as Shnoor AI
@@ -82,7 +136,9 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, client_id: str)
                 # And we must explicitly send it to the requesting websocket too since we omitted it in broadcast
                 await websocket.send_json(ai_message)
     except WebSocketDisconnect:
-        manager.disconnect(websocket, room_id)
+        metadata = manager.disconnect(websocket, room_id) or {}
+        if metadata.get("user_id"):
+            mark_participant_left(room_id, metadata["user_id"])
         # Notify others that this user left
         await manager.broadcast_to_room(room_id, {
             "type": "user-left",
@@ -93,4 +149,6 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, client_id: str)
         logger.info(f"Client {client_id} disconnected from room {room_id}")
     except Exception as e:
         logger.error(f"Error in websocket for client {client_id}: {e}")
-        manager.disconnect(websocket, room_id)
+        metadata = manager.disconnect(websocket, room_id) or {}
+        if metadata.get("user_id"):
+            mark_participant_left(room_id, metadata["user_id"])

@@ -5,6 +5,8 @@ import {
   getPreferredMediaConstraints,
   upsertCallHistoryEntry,
 } from '../utils/meetingUtils';
+import { buildWebSocketUrl } from '../utils/api';
+import { getCurrentUser } from '../utils/currentUser';
 
 const ICE_SERVERS = {
   iceServers: [
@@ -14,6 +16,12 @@ const ICE_SERVERS = {
 };
 
 function getStableClientId(roomId) {
+  const currentUser = getCurrentUser();
+  if (currentUser?.meetingUserId) {
+    sessionStorage.setItem(`meeting_client_${roomId}`, currentUser.meetingUserId);
+    return currentUser.meetingUserId;
+  }
+
   const storageKey = `meeting_client_${roomId}`;
   const existingId = sessionStorage.getItem(storageKey);
 
@@ -21,12 +29,13 @@ function getStableClientId(roomId) {
     return existingId;
   }
 
-  const nextId = Math.random().toString(36).substring(2, 10);
+  const nextId = crypto.randomUUID();
   sessionStorage.setItem(storageKey, nextId);
   return nextId;
 }
 
 function getDisplayName(roomId, isHost) {
+  const currentUser = getCurrentUser();
   const storageKey = `meeting_name_${roomId}`;
   const existingName = sessionStorage.getItem(storageKey);
 
@@ -34,7 +43,7 @@ function getDisplayName(roomId, isHost) {
     return existingName;
   }
 
-  const generatedName = isHost ? 'Host' : `Participant ${getStableClientId(roomId).slice(-4).toUpperCase()}`;
+  const generatedName = currentUser?.name || (isHost ? 'Host' : `Participant ${getStableClientId(roomId).slice(-4).toUpperCase()}`);
   sessionStorage.setItem(storageKey, generatedName);
   return generatedName;
 }
@@ -57,8 +66,15 @@ export function useWebRTC(roomId, options = {}) {
   const initialMediaState = useRef(getPreJoinMediaState(roomId));
   const [isAudioEnabled, setIsAudioEnabled] = useState(initialMediaState.current.audioEnabled);
   const [isVideoEnabled, setIsVideoEnabled] = useState(initialMediaState.current.videoEnabled);
+  const normalizedCurrentEmail = (getCurrentUser()?.email || '').trim().toLowerCase();
+  const storedHostEmail = (localStorage.getItem(`meeting_host_${roomId}`) || '').trim().toLowerCase();
+  const hasStoredHostAccess = Boolean(
+    normalizedCurrentEmail &&
+    storedHostEmail &&
+    storedHostEmail === normalizedCurrentEmail
+  );
 
-  const isHost = useRef(
+  const computeIsHost = useCallback(() => (
     initialRole === 'host' ||
     (
       initialRole !== 'participant' &&
@@ -67,11 +83,14 @@ export function useWebRTC(roomId, options = {}) {
     (
       initialRole !== 'participant' &&
       !sessionStorage.getItem(`meeting_role_${roomId}`) &&
-      localStorage.getItem(`meeting_host_${roomId}`) === 'true'
+      hasStoredHostAccess
     )
-  );
+  ), [hasStoredHostAccess, initialRole, roomId]);
+  const [isHostState, setIsHostState] = useState(() => computeIsHost());
+  const isHost = useRef(isHostState);
   const clientId = useRef(getStableClientId(roomId));
-  const displayName = useRef(getDisplayName(roomId, isHost.current));
+  const displayName = useRef(getDisplayName(roomId, isHostState));
+  const currentUser = useRef(getCurrentUser());
   const ws = useRef(null);
   const peerConnections = useRef({});
   const originalStream = useRef(null);
@@ -164,8 +183,12 @@ export function useWebRTC(roomId, options = {}) {
 
     sendSignalingMessage({
       type: 'join-room',
+      user_id: clientId.current,
+      firebase_uid: currentUser.current?.firebaseUid || null,
+      email: currentUser.current?.email || null,
       name: displayName.current,
       role: isHost.current ? 'host' : 'participant',
+      joined_at: new Date().toISOString(),
     });
   }, [autoJoin, roomId, sendSignalingMessage, startSessionTracking]);
 
@@ -387,6 +410,17 @@ export function useWebRTC(roomId, options = {}) {
   }, [joinRoom]);
 
   useEffect(() => {
+    const nextIsHost = computeIsHost();
+    const wasHost = isHost.current;
+    isHost.current = nextIsHost;
+    setIsHostState(nextIsHost);
+
+    if (!wasHost && nextIsHost && ws.current?.readyState === WebSocket.OPEN) {
+      ws.current.send(JSON.stringify({ type: 'host-ready' }));
+    }
+  }, [computeIsHost]);
+
+  useEffect(() => {
     handleSignalingDataRef.current = handleSignalingData;
   }, [handleSignalingData]);
 
@@ -428,7 +462,7 @@ export function useWebRTC(roomId, options = {}) {
           }
         }
 
-        ws.current = new WebSocket(`ws://localhost:8000/ws/${roomId}/${clientId.current}`);
+        ws.current = new WebSocket(buildWebSocketUrl(`/ws/${roomId}/${clientId.current}`));
 
         ws.current.onopen = () => {
           pendingMessagesRef.current.forEach((message) => {
@@ -495,7 +529,13 @@ export function useWebRTC(roomId, options = {}) {
   const requestToJoin = useCallback((name = displayName.current) => {
     sessionStorage.setItem(`meeting_name_${roomId}`, name);
     displayName.current = name;
-    sendSignalingMessage({ type: 'join-request', name });
+    sendSignalingMessage({
+      type: 'join-request',
+      user_id: clientId.current,
+      email: currentUser.current?.email || null,
+      name,
+      requested_at: new Date().toISOString(),
+    });
   }, [roomId, sendSignalingMessage]);
 
   const toggleVideo = useCallback(() => {
@@ -637,7 +677,11 @@ export function useWebRTC(roomId, options = {}) {
   }, [isHandRaised, isSharingScreen, sendSignalingMessage]);
 
   const sendChatMessage = useCallback((text) => {
-    sendSignalingMessage({ type: 'chat', text });
+    sendSignalingMessage({
+      type: 'chat',
+      text,
+      sent_at: new Date().toISOString(),
+    });
     addMessage({ sender: 'Me', text });
   }, [addMessage, sendSignalingMessage]);
 
@@ -657,7 +701,7 @@ export function useWebRTC(roomId, options = {}) {
     denyParticipant,
     requestToJoin,
     activeJoinRequests,
-    isHost: isHost.current,
+    isHost: isHostState,
     mediaError,
     joinRoom,
     displayName: displayName.current,

@@ -6,8 +6,11 @@ import CalendarHeader from '../components/CalendarHeader';
 import CalendarSidebar from '../components/CalendarSidebar';
 import { MonthView, WeekView, DayView } from '../components/CalendarViews';
 import EventModal from '../components/EventModal';
+import { buildApiUrl } from '../utils/api';
+import { getCurrentUser } from '../utils/currentUser';
 
 export default function CalendarPage() {
+  const currentUser = getCurrentUser();
   const [currentDate, setCurrentDate] = useState(new Date());
   const [view, setView] = useState('Month');
   const [events, setEvents] = useState([]);
@@ -22,7 +25,7 @@ export default function CalendarPage() {
 
   const fetchEvents = async () => {
     try {
-      const response = await fetch('http://localhost:8000/api/calendar/events');
+      const response = await fetch(buildApiUrl('/api/calendar/events'));
       if (response.ok) {
         const data = await response.json();
         setEvents(data);
@@ -61,20 +64,31 @@ export default function CalendarPage() {
   };
 
   const handleSaveEvent = async (eventData) => {
-    const method = eventData.id ? 'PUT' : 'POST';
-    const url = eventData.id 
-      ? `http://localhost:8000/api/calendar/events/${eventData.id}`
-      : 'http://localhost:8000/api/calendar/events';
+    const isEditing = Boolean(selectedEvent?.id);
+    const method = isEditing ? 'PUT' : 'POST';
+    const url = isEditing
+      ? buildApiUrl(`/api/calendar/events/${eventData.id}`)
+      : buildApiUrl('/api/calendar/events');
+
+    const payload = {
+      ...eventData,
+      user_id: currentUser?.meetingUserId || null,
+      user_email: currentUser?.email || null,
+      user_name: currentUser?.name || 'Guest',
+      room_id: eventData.category === 'meetings'
+        ? (eventData.room_id || eventData.id || crypto.randomUUID())
+        : null,
+    };
 
     try {
       const response = await fetch(url, {
         method,
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(eventData),
+        body: JSON.stringify(payload),
       });
 
       if (response.ok) {
-        fetchEvents();
+        await fetchEvents();
         setIsModalOpen(false);
       }
     } catch (err) {

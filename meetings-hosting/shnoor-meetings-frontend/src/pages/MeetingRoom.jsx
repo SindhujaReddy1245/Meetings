@@ -38,6 +38,7 @@ export default function MeetingRoom() {
   const [chatInput, setChatInput] = useState('');
   const messagesEndRef = useRef(null);
   const isAdmitted = sessionStorage.getItem(`meeting_admitted_${roomId}`) === 'true';
+  const latestJoinRequest = activeJoinRequests[0] || null;
 
   useEffect(() => {
     if (!isHost && !isAdmitted) {
@@ -282,7 +283,7 @@ export default function MeetingRoom() {
                               className="bg-blue-600 text-white px-3 py-1.5 rounded-md text-xs font-semibold hover:bg-blue-500 transition-colors inline-flex items-center gap-1"
                             >
                               <Check size={14} />
-                              Admit
+                              Accept
                             </button>
                             <button
                               onClick={() => denyParticipant(req.id)}
@@ -305,9 +306,11 @@ export default function MeetingRoom() {
                 <div className="space-y-3">
                   <div className="flex items-center gap-3 py-2">
                     <div className="w-8 h-8 rounded-full bg-indigo-600 flex items-center justify-center text-white text-xs font-bold">
-                      You
+                      {(displayName || 'You').charAt(0).toUpperCase()}
                     </div>
-                    <span className="text-sm font-medium text-white">You {isHost ? '(Host)' : ''}</span>
+                    <span className="text-sm font-medium text-white">
+                      {displayName || 'You'} {isHost ? '(Host)' : '(You)'}
+                    </span>
                   </div>
                   {Object.keys(remoteStreams).map(peerId => (
                     <div key={peerId} className="flex items-center gap-3 py-2">
@@ -339,6 +342,27 @@ export default function MeetingRoom() {
                   View ({activeJoinRequests.length})
                 </button>
               </div>
+              {latestJoinRequest && (
+                <div className="space-y-3">
+                  <p className="text-sm text-gray-600">
+                    <span className="font-semibold text-gray-900">{latestJoinRequest.name}</span> is waiting in the lobby.
+                  </p>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => admitParticipant(latestJoinRequest.id)}
+                      className="flex-1 bg-blue-600 text-white px-3 py-2 rounded-lg text-sm font-semibold hover:bg-blue-500 transition-colors"
+                    >
+                      Accept
+                    </button>
+                    <button
+                      onClick={() => denyParticipant(latestJoinRequest.id)}
+                      className="flex-1 bg-gray-100 text-gray-700 px-3 py-2 rounded-lg text-sm font-semibold hover:bg-gray-200 transition-colors"
+                    >
+                      Deny
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         )}

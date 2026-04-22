@@ -1,116 +1,224 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { Bot, Mic, Video, Send, X } from 'lucide-react';
+import React, { useState } from "react";
+import { Bot, X } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 
 export default function ChatbotPanel({ onClose }) {
-  const videoRef = useRef(null);
-  const [stream, setStream] = useState(null);
-  const [input, setInput] = useState('');
-  const [messages, setMessages] = useState([
-    { sender: 'AI', text: 'Hello! I am your Shnoor Meeting Assistant. How can I help you today?' }
-  ]);
+  const navigate = useNavigate();
 
-  useEffect(() => {
-    // Automatically connect to microphone and camera when chatbot opens
-    let mediaStream = null;
-    const initMedia = async () => {
-      try {
-        mediaStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-        setStream(mediaStream);
-        if (videoRef.current) {
-          videoRef.current.srcObject = mediaStream;
-        }
-      } catch (err) {
-        console.error('Error connecting to camera/mic for AI:', err);
+  const [step, setStep] = useState("topics");
+  const [selectedTopic, setSelectedTopic] = useState(null);
+  const [selectedAnswer, setSelectedAnswer] = useState("");
+
+  const topics = [
+    "Create Meeting",
+    "Join Meeting",
+    "Schedule Meeting",
+    "Add Task",
+    "General Help"
+  ];
+
+  const data = {
+    "Create Meeting": {
+      questions: [
+        "Steps to create meeting",
+        "Add participants",
+        "Start meeting",
+        "Back to main menu"
+      ],
+      answers: {
+        "Steps to create meeting": `To create a meeting:
+1. Click 'New Meeting'
+2. Choose Instant or Schedule
+3. Add participants
+4. Start meeting`,
+        "Add participants": `To add participants:
+1. Enter email IDs
+2. Share meeting link
+3. Invite directly`,
+        "Start meeting": `To start meeting:
+1. Click 'Start'
+2. Enable mic & camera
+3. Join meeting room`
       }
-    };
-    initMedia();
+    },
 
-    return () => {
-      if (mediaStream) {
-        mediaStream.getTracks().forEach(track => track.stop());
+    "Join Meeting": {
+      questions: [
+        "How to join meeting",
+        "Enter meeting ID",
+        "Back to main menu"
+      ],
+      answers: {
+        "How to join meeting": `To join a meeting:
+1. Click 'Join Meeting'
+2. Enter meeting ID
+3. Click Join`,
+        "Enter meeting ID": `Enter the meeting ID shared with you and click join.`
       }
-    };
-  }, []);
+    },
 
-  const handleSend = (e) => {
-    e.preventDefault();
-    if (!input.trim()) return;
-    
-    const userMsg = input.trim();
-    setMessages(prev => [...prev, { sender: 'You', text: userMsg }]);
-    setInput('');
-    
-    // Mock AI response
-    setTimeout(() => {
-      setMessages(prev => [...prev, { 
-        sender: 'AI', 
-        text: `I heard you say: "${userMsg}". I am currently just a demo interface!` 
-      }]);
-    }, 1000);
+    "Schedule Meeting": {
+      questions: [
+        "How to schedule meeting",
+        "Edit scheduled meeting",
+        "Back to main menu"
+      ],
+      answers: {
+        "How to schedule meeting": `To schedule:
+1. Go to Calendar
+2. Select date & time
+3. Save meeting`,
+        "Edit scheduled meeting": `You can edit meeting from calendar anytime.`
+      }
+    },
+
+    "Add Task": {
+      questions: [
+        "How to add task",
+        "Edit task",
+        "Back to main menu"
+      ],
+      answers: {
+        "How to add task": `To add task:
+1. Open meeting dashboard
+2. Click 'Add Task'
+3. Enter details
+4. Save`,
+        "Edit task": `Click on task → edit → save changes.`
+      }
+    },
+
+    "General Help": {
+      questions: [
+        "What is this platform?",
+        "How to use meetings?",
+        "Troubleshooting issues",
+        "Back to main menu"
+      ],
+      answers: {
+        "What is this platform?": `This is a video meeting and collaboration platform where you can create, join and manage meetings.`,
+        "How to use meetings?": `Steps:
+1. Create or join meeting
+2. Enable mic & camera
+3. Start collaboration`,
+        "Troubleshooting issues": `If facing issues:
+- Check internet
+- Allow camera/mic permissions
+- Refresh the page`
+      }
+    }
+  };
+
+  const handleTopicClick = (topic) => {
+    setSelectedTopic(topic);
+    setStep("questions");
+  };
+
+  const handleQuestionClick = (question) => {
+    if (question === "Back to main menu") {
+      setStep("topics");
+      setSelectedTopic(null);
+      return;
+    }
+
+    const answer = data[selectedTopic]?.answers?.[question];
+
+    if (answer) {
+      setSelectedAnswer(answer);
+      setStep("answer");
+    } else {
+      setSelectedAnswer("No answer found. Please contact support.");
+      setStep("answer");
+    }
   };
 
   return (
-    <div className="fixed bottom-6 right-6 z-50 w-80 bg-white rounded-2xl shadow-2xl border border-gray-200 overflow-hidden flex flex-col h-[500px] animate-in slide-in-from-bottom-5">
-      {/* Header */}
-      <div className="bg-blue-600 text-white p-4 flex justify-between items-center">
+    <div className="fixed bottom-6 right-6 w-[340px] h-[520px] bg-[#f8fafc] rounded-2xl shadow-xl flex flex-col overflow-hidden border border-gray-200">
+
+      <div className="bg-[#2563eb] text-white px-4 py-3 flex justify-between items-center">
         <div className="flex items-center gap-2">
-          <Bot size={20} />
-          <span className="font-semibold">AI Assistant</span>
+          <Bot size={18} />
+          <span className="font-semibold text-[15px]">Help & Support</span>
         </div>
-        <button onClick={onClose} className="hover:bg-blue-700 p-1 rounded transition-colors">
-          <X size={18} />
-        </button>
+        <X onClick={onClose} className="cursor-pointer hover:opacity-80" />
       </div>
 
-      {/* Mini Video Feed (Micro Camera) */}
-      <div className="bg-gray-900 h-32 relative flex-shrink-0">
-        {stream ? (
-          <video 
-            ref={videoRef} 
-            autoPlay 
-            muted 
-            playsInline 
-            className="w-full h-full object-cover mirror" 
-            style={{ transform: 'scaleX(-1)' }}
-          />
-        ) : (
-          <div className="flex w-full h-full items-center justify-center text-gray-500 flex-col gap-2">
-            <div className="flex gap-2">
-              <Video size={16} /> <Mic size={16} />
-            </div>
-            <span className="text-xs">Connecting...</span>
-          </div>
+      <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3">
+
+        {step === "topics" && (
+          <>
+            <h3 className="text-sm font-semibold text-gray-900">
+              How can we help you today?
+            </h3>
+
+            {topics.map((t, i) => (
+              <div
+                key={i}
+                onClick={() => handleTopicClick(t)}
+                className="bg-white border border-gray-200 rounded-xl px-4 py-3 cursor-pointer hover:bg-blue-50 text-gray-800 font-medium"
+              >
+                {t}
+              </div>
+            ))}
+          </>
         )}
-        <div className="absolute bottom-2 right-2 bg-black/60 px-2 py-1 rounded text-white text-xs backdrop-blur-sm">
-          Live Feed
-        </div>
-      </div>
 
-      {/* Chat Messages */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-gray-50">
-        {messages.map((msg, i) => (
-          <div key={i} className={`flex flex-col ${msg.sender === 'AI' ? 'items-start' : 'items-end'}`}>
-            <span className="text-[10px] text-gray-400 mb-0.5 ml-1">{msg.sender}</span>
-            <div className={`text-sm px-3 py-2 rounded-2xl max-w-[85%] ${msg.sender === 'AI' ? 'bg-white border border-gray-200 text-gray-800 rounded-tl-none' : 'bg-blue-600 text-white rounded-tr-none'}`}>
-              {msg.text}
+        {step === "questions" && (
+          <>
+            <h3 className="text-sm font-semibold text-gray-900">
+              {selectedTopic}
+            </h3>
+
+            {data[selectedTopic]?.questions?.length ? (
+              data[selectedTopic].questions.map((q, i) => (
+                <div
+                  key={i}
+                  onClick={() => handleQuestionClick(q)}
+                  className="bg-white border border-gray-200 rounded-xl px-4 py-3 cursor-pointer hover:bg-blue-50 text-gray-800"
+                >
+                  {q}
+                </div>
+              ))
+            ) : (
+              <p className="text-gray-500 text-sm">
+                No help available for this topic.
+              </p>
+            )}
+          </>
+        )}
+
+        {step === "answer" && (
+          <>
+            <h3 className="text-sm font-semibold text-gray-900">
+              {selectedTopic}
+            </h3>
+
+            <div className="bg-white border border-gray-200 rounded-xl px-4 py-3 text-sm text-gray-800 whitespace-pre-line">
+              {selectedAnswer}
             </div>
-          </div>
-        ))}
-      </div>
 
-      {/* Chat Input */}
-      <form onSubmit={handleSend} className="p-3 bg-white border-t border-gray-100 flex gap-2">
-        <input 
-          type="text" 
-          placeholder="Ask me anything..." 
-          className="flex-1 text-sm outline-none px-3 py-2 bg-gray-50 border border-gray-200 rounded-full focus:ring-2 focus:ring-blue-100 transition-all font-sans"
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-        />
-        <button type="submit" disabled={!input.trim()} className="bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 text-white p-2 rounded-full transition-colors flex items-center justify-center flex-shrink-0">
-          <Send size={16} className="-ml-0.5" />
-        </button>
-      </form>
+            <div className="flex justify-end">
+              <button
+                onClick={() => setStep("questions")}
+                className="bg-[#2563eb] text-white px-4 py-2 rounded-lg text-sm hover:bg-blue-700"
+              >
+                More Help
+              </button>
+            </div>
+
+            <div className="space-y-2">
+              <div
+                onClick={() => setStep("topics")}
+                className="bg-white border border-gray-200 rounded-xl px-4 py-3 cursor-pointer hover:bg-gray-50 text-gray-700"
+              >
+                Back to main menu
+              </div>
+
+              
+            </div>
+          </>
+        )}
+      </div>
     </div>
   );
 }

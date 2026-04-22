@@ -1,11 +1,13 @@
 import { useState, useEffect, useRef } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
-import { Mic, MicOff, Video, VideoOff, Settings, MoreVertical, Shield, User, Monitor, Sparkles, LogIn, ChevronRight, X, Check, Link, ChevronDown, Grid } from 'lucide-react';
+import { Mic, MicOff, Video, VideoOff, MoreVertical, Monitor, Sparkles, LogIn, X, Link, ChevronDown, Grid } from 'lucide-react';
 import MeetingHeader from '../components/MeetingHeader';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useWebRTC } from '../hooks/useWebRTC';
 import InviteModal from '../components/InviteModal';
 import { getPreJoinMediaState, getPreferredMediaConstraints, savePreJoinMediaState } from '../utils/meetingUtils';
+import { getCurrentUser } from '../utils/currentUser';
+import { buildApiUrl } from '../utils/api';
 
 export default function LobbyPage() {
   const { id: roomId } = useParams();
@@ -14,16 +16,19 @@ export default function LobbyPage() {
   const videoRef = useRef(null);
   const roleFromLink = new URLSearchParams(location.search).get('role');
   const storedRole = sessionStorage.getItem(`meeting_role_${roomId}`);
-  const storedHostFlag = localStorage.getItem(`meeting_host_${roomId}`) === 'true';
+  const normalizedCurrentEmail = (getCurrentUser()?.email || '').trim().toLowerCase();
+  const storedHostEmail = (localStorage.getItem(`meeting_host_${roomId}`) || '').trim().toLowerCase();
+  const storedHostFlag = Boolean(normalizedCurrentEmail && storedHostEmail && storedHostEmail === normalizedCurrentEmail);
   const storedParticipantName = sessionStorage.getItem(`meeting_name_${roomId}`) || 'Guest';
-  const initialRole = roleFromLink === 'participant'
-    ? 'participant'
-    : storedRole === 'host' || storedHostFlag
-      ? 'host'
+  const [resolvedRole, setResolvedRole] = useState(() => (storedRole === 'host' || storedHostFlag
+    ? 'host'
+    : roleFromLink === 'participant'
+      ? 'participant'
       : storedRole === 'participant'
         ? 'participant'
-        : undefined;
+        : undefined));
   
+  const currentUser = getCurrentUser();
   const [stream, setStream] = useState(null);
   const initialMediaState = getPreJoinMediaState(roomId);
   const [isMicOn, setIsMicOn] = useState(initialMediaState.audioEnabled);
@@ -39,8 +44,9 @@ export default function LobbyPage() {
     isHost, 
     activeJoinRequests, 
     admitParticipant, 
+    denyParticipant,
     requestToJoin 
-  } = useWebRTC(roomId, { acquireMedia: false, autoJoin: false, initialRole });
+  } = useWebRTC(roomId, { acquireMedia: false, autoJoin: false, initialRole: resolvedRole });
 
   const toastTimeoutRef = useRef(null);
 
@@ -48,13 +54,49 @@ export default function LobbyPage() {
     const params = new URLSearchParams(location.search);
     const roleFromLink = params.get('role');
 
-    if (roleFromLink === 'participant') {
+    if (storedHostFlag) {
+      sessionStorage.setItem(`meeting_role_${roomId}`, 'host');
+      setResolvedRole('host');
+    } else if (roleFromLink === 'participant') {
       sessionStorage.setItem(`meeting_role_${roomId}`, 'participant');
       sessionStorage.removeItem(`meeting_admitted_${roomId}`);
-    } else if (storedHostFlag) {
-      sessionStorage.setItem(`meeting_role_${roomId}`, 'host');
+      setResolvedRole('participant');
     }
   }, [location.search, roomId, storedHostFlag]);
+
+  useEffect(() => {
+    const checkHostDirectAdmin = async () => {
+      try {
+        const response = await fetch(buildApiUrl(`/api/meetings/${roomId}`));
+        if (response.ok) {
+          const data = await response.json();
+          const normalizedHostEmail = (data.host_email || '').trim().toLowerCase();
+          const isMeetingHost = Boolean(
+            data.valid && (
+              (data.host_id && currentUser?.meetingUserId === data.host_id) ||
+              (normalizedHostEmail && normalizedCurrentEmail === normalizedHostEmail)
+            )
+          );
+
+          if (isMeetingHost) {
+            localStorage.setItem(`meeting_host_${roomId}`, normalizedCurrentEmail);
+            sessionStorage.setItem(`meeting_role_${roomId}`, 'host');
+            setResolvedRole('host');
+          } else {
+            localStorage.removeItem(`meeting_host_${roomId}`);
+            sessionStorage.setItem(`meeting_role_${roomId}`, 'participant');
+            setResolvedRole('participant');
+          }
+        }
+      } catch (err) {
+        console.error('Failed to verify admin status:', err);
+      }
+    };
+    
+    if (roomId) {
+      checkHostDirectAdmin();
+    }
+  }, [roomId, currentUser?.meetingUserId, normalizedCurrentEmail]);
 
   useEffect(() => {
     savePreJoinMediaState(roomId, { audioEnabled: isMicOn, videoEnabled: isVideoOn });
@@ -287,7 +329,7 @@ export default function LobbyPage() {
                 
                 {activeJoinRequests.length > 0 && (
                   <div className="mt-8 text-left animate-in slide-in-from-bottom-4 duration-500">
-                    <h3 className="text-sm font-bold text-gray-500 uppercase tracking-wider mb-4">Waiting to join ({activeJoinRequests.length})</h3>
+                    <h3 className="text-sm font-bold text-gray-500 uppercase tracking-wider mb-4">Waiting in lobby ({activeJoinRequests.length})</h3>
                     <div className="space-y-2">
                       {activeJoinRequests.map(req => (
                         <div key={req.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-xl border border-gray-100">
@@ -295,18 +337,25 @@ export default function LobbyPage() {
                             <div className="w-8 h-8 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center font-bold text-xs">
                               {req.name.charAt(0)}
                             </div>
-                            <span className="text-sm font-medium text-gray-700">{req.name}</span>
+                            <div className="min-w-0">
+                              <div className="text-sm font-medium text-gray-700">{req.name}</div>
+                              <div className="text-xs text-gray-500">Waiting in lobby</div>
+                            </div>
                           </div>
                           <div className="flex gap-2">
                             <button 
                               onClick={() => admitParticipant(req.id)}
-                              className="p-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-                              title="Admit"
+                              className="px-3 py-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium"
+                              title="Accept"
                             >
-                              <Check size={16} />
+                              Accept
                             </button>
-                            <button className="p-1.5 bg-gray-200 text-gray-500 rounded-lg hover:bg-gray-300 transition-colors" title="Deny">
-                              <X size={16} />
+                            <button
+                              onClick={() => denyParticipant(req.id)}
+                              className="px-3 py-1.5 bg-gray-200 text-gray-600 rounded-lg hover:bg-gray-300 transition-colors text-sm font-medium"
+                              title="Deny"
+                            >
+                              Deny
                             </button>
                           </div>
                         </div>
