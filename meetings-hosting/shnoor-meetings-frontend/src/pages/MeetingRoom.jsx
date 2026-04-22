@@ -14,6 +14,7 @@ export default function MeetingRoom() {
   const normalizedCurrentEmail = (getCurrentUser()?.email || '').trim().toLowerCase();
   const storedHostEmail = (localStorage.getItem(`meeting_host_${roomId}`) || '').trim().toLowerCase();
   const isStoredHost = Boolean(normalizedCurrentEmail && storedHostEmail && normalizedCurrentEmail === storedHostEmail);
+  const shouldShowHostControls = isStoredHost || storedRole === 'host' || isHost;
   const {
     localStream,
     remoteStreams,
@@ -52,12 +53,12 @@ export default function MeetingRoom() {
   const inCallParticipantIds = Object.keys(participantsMetadata).filter((peerId) => peerId !== localClientId);
 
   useEffect(() => {
-    if (isHost && activeJoinRequests.length > prevJoinRequestsCount.current) {
+    if (shouldShowHostControls && activeJoinRequests.length > prevJoinRequestsCount.current) {
       setIsPeopleOpen(true);
       setIsChatOpen(false);
     }
     prevJoinRequestsCount.current = activeJoinRequests.length;
-  }, [activeJoinRequests.length, isHost]);
+  }, [activeJoinRequests.length, shouldShowHostControls]);
 
   useEffect(() => {
     if (!isHost && !isAdmitted) {
@@ -237,7 +238,7 @@ export default function MeetingRoom() {
             isCaptionsOn={isCaptionsOn}
             isAudioOn={isAudioEnabled}
             isVideoOn={isVideoEnabled}
-            waitingCount={isHost ? activeJoinRequests.length : 0}
+            waitingCount={shouldShowHostControls ? activeJoinRequests.length : 0}
             toggleChatVisibility={() => {
               setIsChatOpen(!isChatOpen);
               if (!isChatOpen) setIsPeopleOpen(false);
@@ -313,7 +314,7 @@ export default function MeetingRoom() {
             
             <div className="flex-1 overflow-y-auto p-4 space-y-6">
               {/* Waiting Room / Lobby Section */}
-              {isHost && (
+              {shouldShowHostControls && (
                 <div>
                   <div className="flex justify-between items-center mb-3">
                     <h3 className="text-sm font-bold text-gray-400 uppercase tracking-wider text-xs">Waiting in Lobby</h3>
@@ -384,7 +385,7 @@ export default function MeetingRoom() {
         )}
 
         {/* Join Requests Overlay (for Host) - Kept as a toast-like notification if sidebar is closed */}
-        {isHost && activeJoinRequests.length > 0 && !isPeopleOpen && (
+        {shouldShowHostControls && activeJoinRequests.length > 0 && !isPeopleOpen && (
           <div className="fixed top-20 right-4 z-50 w-72 animate-in slide-in-from-right duration-500">
             <div className="bg-white rounded-2xl shadow-2xl p-4 border border-gray-200">
               <div className="flex items-center justify-between mb-3">
