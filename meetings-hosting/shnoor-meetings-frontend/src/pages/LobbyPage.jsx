@@ -44,7 +44,8 @@ export default function LobbyPage() {
     activeJoinRequests, 
     admitParticipant, 
     denyParticipant,
-    requestToJoin 
+    requestToJoin,
+    joinRoom,
   } = useWebRTC(roomId, { acquireMedia: false, autoJoin: false, initialRole: resolvedRole });
 
   const toastTimeoutRef = useRef(null);
@@ -183,6 +184,7 @@ export default function LobbyPage() {
     const handleAdmitted = (e) => {
       if (e.detail.roomId === roomId) {
         setIsWaiting(false);
+        joinRoom();
         joinMeetingRef.current?.();
       }
     };
@@ -198,7 +200,7 @@ export default function LobbyPage() {
       window.removeEventListener('meeting-admitted', handleAdmitted);
       window.removeEventListener('meeting-denied', handleDenied);
     };
-  }, [roomId]);
+  }, [joinRoom, roomId]);
 
   const handleAskToJoin = () => {
     const trimmedName = participantName.trim() || currentUser?.name || 'Guest';
@@ -206,6 +208,14 @@ export default function LobbyPage() {
     setIsWaiting(true);
     requestToJoin(trimmedName);
     showToast("Waiting for host to accept...");
+  };
+
+  const handleHostAccept = (participantId) => {
+    admitParticipant(participantId);
+
+    if (!sessionStorage.getItem(`meeting_admitted_${roomId}`)) {
+      joinMeetingRef.current?.();
+    }
   };
 
   const joinMeeting = () => {
@@ -372,7 +382,7 @@ export default function LobbyPage() {
                           </div>
                           <div className="flex gap-2">
                             <button 
-                              onClick={() => admitParticipant(req.id)}
+                              onClick={() => handleHostAccept(req.id)}
                               className="px-3 py-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium"
                               title="Accept"
                             >

@@ -150,7 +150,7 @@ export function useWebRTC(roomId, options = {}) {
   }, [isHandRaised, isSharingScreen, sendSignalingMessage]);
 
   const joinRoom = useCallback(() => {
-    if (!autoJoin || joinedRoomRef.current || !ws.current || ws.current.readyState !== WebSocket.OPEN) {
+    if (joinedRoomRef.current || !ws.current || ws.current.readyState !== WebSocket.OPEN) {
       return;
     }
 
@@ -179,7 +179,7 @@ export function useWebRTC(roomId, options = {}) {
       role: isHost.current ? 'host' : 'participant',
       joined_at: new Date().toISOString(),
     });
-  }, [autoJoin, roomId, sendSignalingMessage, startSessionTracking]);
+  }, [roomId, sendSignalingMessage, startSessionTracking]);
 
   const createPeerConnection = useCallback((peerId, stream) => {
     if (!peerId || !stream) {
