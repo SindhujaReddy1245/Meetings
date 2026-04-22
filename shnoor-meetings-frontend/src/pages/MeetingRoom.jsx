@@ -191,6 +191,7 @@ export default function MeetingRoom() {
             isCaptionsOn={isCaptionsOn}
             isAudioOn={isAudioEnabled}
             isVideoOn={isVideoEnabled}
+            waitingCount={isHost ? activeJoinRequests.length : 0}
             toggleChatVisibility={() => {
               setIsChatOpen(!isChatOpen);
               if (!isChatOpen) setIsPeopleOpen(false);
