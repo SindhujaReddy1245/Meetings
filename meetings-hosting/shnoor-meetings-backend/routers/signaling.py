@@ -15,6 +15,13 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
+
+async def sync_waiting_room(room_id: str):
+    await manager.send_to_role(room_id, "host", {
+        "type": "waiting-room-sync",
+        "requests": manager.get_waiting_requests(room_id),
+    })
+
 @router.websocket("/ws/{room_id}/{client_id}")
 async def websocket_endpoint(websocket: WebSocket, room_id: str, client_id: str):
     """
@@ -53,6 +60,14 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, client_id: str)
                     role = "host"
                 else:
                     role = "host" if is_meeting_host else "participant"
+
+                if role == "participant" and not manager.is_participant_accepted(room_id, client_id):
+                    await manager.send_to_websocket(websocket, {
+                        "type": "join-blocked",
+                        "reason": "not-admitted",
+                    })
+                    continue
+
                 meeting_id = ensure_meeting_record(
                     room_id,
                     host_user_id=user_id if role == "host" else None,
@@ -71,6 +86,9 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, client_id: str)
                 })
 
                 if role == "host":
+                    manager.add_accepted_participant(room_id, client_id)
+
+                if role == "host":
                     await manager.send_to_websocket(websocket, {
                         "type": "waiting-room-sync",
                         "requests": manager.get_waiting_requests(room_id)
@@ -87,27 +105,42 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, client_id: str)
                 await manager.broadcast_to_room(room_id, join_message, sender=websocket)
                 continue
 
-            if msg_type == "host-ready":
+            if msg_type in {"host-ready", "host_join"}:
                 await manager.send_to_websocket(websocket, {
                     "type": "waiting-room-sync",
                     "requests": manager.get_waiting_requests(room_id)
                 })
                 continue
 
-            if msg_type == "join-request":
-                manager.add_waiting_request(room_id, client_id, data.get("name", "Participant"))
+            if msg_type in {"join-request", "ask_to_join"}:
+                requester_name = data.get("name", "Participant")
+                manager.add_waiting_request(room_id, client_id, requester_name)
+                await manager.send_to_role(room_id, "host", {
+                    "type": "join_request",
+                    "sender": client_id,
+                    "client_id": client_id,
+                    "name": requester_name,
+                })
+                await sync_waiting_room(room_id)
+                continue
 
-            if msg_type in {"admit", "deny"} and target_id:
+            if msg_type in {"admit", "accept_user", "deny"} and target_id:
                 manager.remove_waiting_request(room_id, target_id)
+                if msg_type in {"admit", "accept_user"}:
+                    manager.add_accepted_participant(room_id, target_id)
+                await sync_waiting_room(room_id)
+                await manager.send_to_client(room_id, target_id, {
+                    "type": "accepted" if msg_type in {"admit", "accept_user"} else "deny",
+                    "sender": client_id,
+                    **data,
+                })
+                continue
 
             message_to_send = {
                 "type": msg_type,
                 "sender": client_id,
                 **data
             }
-
-            if target_id:
-                pass
 
             await manager.broadcast_to_room(room_id, message_to_send, sender=websocket)
 
@@ -137,8 +170,11 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, client_id: str)
                 await websocket.send_json(ai_message)
     except WebSocketDisconnect:
         metadata = manager.disconnect(websocket, room_id) or {}
+        removed_request = manager.remove_waiting_request(room_id, client_id)
         if metadata.get("user_id"):
             mark_participant_left(room_id, metadata["user_id"])
+        if removed_request:
+            await sync_waiting_room(room_id)
         # Notify others that this user left
         await manager.broadcast_to_room(room_id, {
             "type": "user-left",
@@ -150,5 +186,8 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, client_id: str)
     except Exception as e:
         logger.error(f"Error in websocket for client {client_id}: {e}")
         metadata = manager.disconnect(websocket, room_id) or {}
+        removed_request = manager.remove_waiting_request(room_id, client_id)
         if metadata.get("user_id"):
             mark_participant_left(room_id, metadata["user_id"])
+        if removed_request:
+            await sync_waiting_room(room_id)

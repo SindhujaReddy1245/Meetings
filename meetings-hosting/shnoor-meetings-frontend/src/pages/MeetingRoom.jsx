@@ -4,10 +4,15 @@ import { useWebRTC } from '../hooks/useWebRTC';
 import VideoGrid from '../components/VideoGrid';
 import MeetingControls from '../components/MeetingControls';
 import { Send, Users, Info, Video, Check, X } from 'lucide-react';
+import { getCurrentUser } from '../utils/currentUser';
 
 export default function MeetingRoom() {
   const { id: roomId } = useParams();
   const navigate = useNavigate();
+  const isAdmitted = sessionStorage.getItem(`meeting_admitted_${roomId}`) === 'true';
+  const normalizedCurrentEmail = (getCurrentUser()?.email || '').trim().toLowerCase();
+  const storedHostEmail = (localStorage.getItem(`meeting_host_${roomId}`) || '').trim().toLowerCase();
+  const isStoredHost = Boolean(normalizedCurrentEmail && storedHostEmail && normalizedCurrentEmail === storedHostEmail);
   const {
     localStream,
     remoteStreams,
@@ -28,7 +33,7 @@ export default function MeetingRoom() {
     displayName,
     isAudioEnabled,
     isVideoEnabled,
-  } = useWebRTC(roomId);
+  } = useWebRTC(roomId, { autoJoin: isAdmitted || isStoredHost });
 
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [isPeopleOpen, setIsPeopleOpen] = useState(false);
@@ -37,12 +42,11 @@ export default function MeetingRoom() {
   const recognitionRef = useRef(null);
   const [chatInput, setChatInput] = useState('');
   const messagesEndRef = useRef(null);
-  const isAdmitted = sessionStorage.getItem(`meeting_admitted_${roomId}`) === 'true';
   const latestJoinRequest = activeJoinRequests[0] || null;
 
   useEffect(() => {
     if (!isHost && !isAdmitted) {
-      navigate(`/room/${roomId}`, { replace: true });
+      navigate(`/meeting/${roomId}`, { replace: true });
     }
   }, [isAdmitted, isHost, navigate, roomId]);
 
@@ -191,6 +195,7 @@ export default function MeetingRoom() {
             isCaptionsOn={isCaptionsOn}
             isAudioOn={isAudioEnabled}
             isVideoOn={isVideoEnabled}
+            waitingCount={isHost ? activeJoinRequests.length : 0}
             toggleChatVisibility={() => {
               setIsChatOpen(!isChatOpen);
               if (!isChatOpen) setIsPeopleOpen(false);

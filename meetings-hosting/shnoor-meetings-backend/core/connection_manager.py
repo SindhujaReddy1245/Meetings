@@ -15,6 +15,7 @@ class ConnectionManager:
         self.user_records: Dict[str, Dict[WebSocket, str]] = {}
         self.connection_users: Dict[str, Dict[WebSocket, dict]] = {}
         self.waiting_requests: Dict[str, Dict[str, dict]] = {}
+        self.accepted_participants: Dict[str, set[str]] = {}
 
     async def connect(self, websocket: WebSocket, room_id: str, client_id: str):
         await websocket.accept()
@@ -23,6 +24,7 @@ class ConnectionManager:
             self.user_records[room_id] = {}
             self.connection_users[room_id] = {}
             self.waiting_requests[room_id] = {}
+            self.accepted_participants[room_id] = set()
             
         self.active_connections[room_id].append(websocket)
         self.user_records[room_id][websocket] = client_id
@@ -48,6 +50,7 @@ class ConnectionManager:
                 del self.user_records[room_id]
                 self.connection_users.pop(room_id, None)
                 self.waiting_requests.pop(room_id, None)
+                self.accepted_participants.pop(room_id, None)
 
         return metadata
 
@@ -81,6 +84,19 @@ class ConnectionManager:
         except Exception as e:
             logger.error(f"Error sending websocket message: {e}")
 
+    async def send_to_role(self, room_id: str, role: str, message: dict):
+        if room_id not in self.connection_users:
+            return
+
+        for connection, metadata in list(self.connection_users[room_id].items()):
+            if (metadata or {}).get("role") != role:
+                continue
+
+            try:
+                await connection.send_json(message)
+            except Exception as e:
+                logger.error(f"Error sending message to {role} connection: {e}")
+
     def set_connection_user(self, room_id: str, websocket: WebSocket, metadata: dict):
         if room_id not in self.connection_users:
             self.connection_users[room_id] = {}
@@ -105,9 +121,19 @@ class ConnectionManager:
 
     def remove_waiting_request(self, room_id: str, client_id: str):
         if room_id in self.waiting_requests:
-            self.waiting_requests[room_id].pop(client_id, None)
+            return self.waiting_requests[room_id].pop(client_id, None)
+        return None
 
     def get_waiting_requests(self, room_id: str):
         return list(self.waiting_requests.get(room_id, {}).values())
+
+    def add_accepted_participant(self, room_id: str, client_id: str):
+        if room_id not in self.accepted_participants:
+            self.accepted_participants[room_id] = set()
+
+        self.accepted_participants[room_id].add(client_id)
+
+    def is_participant_accepted(self, room_id: str, client_id: str):
+        return client_id in self.accepted_participants.get(room_id, set())
 
 manager = ConnectionManager()

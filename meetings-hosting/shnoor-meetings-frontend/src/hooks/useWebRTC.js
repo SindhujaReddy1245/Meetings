@@ -360,6 +360,7 @@ export function useWebRTC(roomId, options = {}) {
         break;
 
       case 'join-request':
+      case 'join_request':
         if (isHost.current) {
           setActiveJoinRequests((prev) => {
             if (prev.find((request) => request.id === peerId)) {
@@ -384,11 +385,17 @@ export function useWebRTC(roomId, options = {}) {
         break;
 
       case 'admit':
+      case 'accepted':
         sessionStorage.setItem(`meeting_admitted_${roomId}`, 'true');
         window.dispatchEvent(new CustomEvent('meeting-admitted', { detail: { roomId } }));
         break;
 
       case 'deny':
+        window.dispatchEvent(new CustomEvent('meeting-denied', { detail: { roomId } }));
+        break;
+
+      case 'join-blocked':
+        sessionStorage.removeItem(`meeting_admitted_${roomId}`);
         window.dispatchEvent(new CustomEvent('meeting-denied', { detail: { roomId } }));
         break;
 
@@ -416,7 +423,7 @@ export function useWebRTC(roomId, options = {}) {
     setIsHostState(nextIsHost);
 
     if (!wasHost && nextIsHost && ws.current?.readyState === WebSocket.OPEN) {
-      ws.current.send(JSON.stringify({ type: 'host-ready' }));
+      ws.current.send(JSON.stringify({ type: 'host_join' }));
     }
   }, [computeIsHost]);
 
@@ -471,7 +478,7 @@ export function useWebRTC(roomId, options = {}) {
           pendingMessagesRef.current = [];
 
           if (isHost.current) {
-            ws.current?.send(JSON.stringify({ type: 'host-ready' }));
+            ws.current?.send(JSON.stringify({ type: 'host_join' }));
           }
 
           if (autoJoin) {
@@ -517,7 +524,7 @@ export function useWebRTC(roomId, options = {}) {
   }, [acquireMedia, autoJoin, roomId, endSessionTracking]);
 
   const admitParticipant = useCallback((participantId) => {
-    sendSignalingMessage({ type: 'admit', target: participantId });
+    sendSignalingMessage({ type: 'accept_user', target: participantId });
     setActiveJoinRequests((prev) => prev.filter((request) => request.id !== participantId));
   }, [sendSignalingMessage]);
 
@@ -530,7 +537,7 @@ export function useWebRTC(roomId, options = {}) {
     sessionStorage.setItem(`meeting_name_${roomId}`, name);
     displayName.current = name;
     sendSignalingMessage({
-      type: 'join-request',
+      type: 'ask_to_join',
       user_id: clientId.current,
       email: currentUser.current?.email || null,
       name,

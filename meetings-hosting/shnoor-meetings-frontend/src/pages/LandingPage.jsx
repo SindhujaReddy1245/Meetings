@@ -89,13 +89,13 @@ export default function LandingPage() {
       const data = await response.json();
       if (data.room_id) {
         markMeetingHost(data.room_id);
-        navigate(`/room/${data.room_id}`);
+        navigate(`/meeting/${data.room_id}`);
       }
     } catch (err) {
       console.error('Failed to create instant meeting:', err);
       const fallbackRoomId = frontendRoomId;
       markMeetingHost(fallbackRoomId);
-      navigate(`/room/${fallbackRoomId}`);
+      navigate(`/meeting/${fallbackRoomId}`);
     } finally {
       setIsLoading(false);
     }
@@ -147,7 +147,8 @@ export default function LandingPage() {
     if (roomId) {
       sessionStorage.setItem(`meeting_role_${roomId}`, 'participant');
       sessionStorage.setItem(`meeting_name_${roomId}`, displayName);
-      navigate(`/room/${roomId}?role=participant`);
+      sessionStorage.removeItem(`meeting_admitted_${roomId}`);
+      navigate(`/meeting/${roomId}?role=participant`);
     }
   };
 
