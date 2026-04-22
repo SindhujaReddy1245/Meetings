@@ -37,12 +37,21 @@ export default function MeetingRoom() {
 
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [isPeopleOpen, setIsPeopleOpen] = useState(false);
+  const prevJoinRequestsCount = useRef(0);
   const [isCaptionsOn, setIsCaptionsOn] = useState(false);
   const [currentCaptionText, setCurrentCaptionText] = useState('');
   const recognitionRef = useRef(null);
   const [chatInput, setChatInput] = useState('');
   const messagesEndRef = useRef(null);
   const latestJoinRequest = activeJoinRequests[0] || null;
+
+  useEffect(() => {
+    if (isHost && activeJoinRequests.length > prevJoinRequestsCount.current) {
+      setIsPeopleOpen(true);
+      setIsChatOpen(false);
+    }
+    prevJoinRequestsCount.current = activeJoinRequests.length;
+  }, [activeJoinRequests.length, isHost]);
 
   useEffect(() => {
     if (!isHost && !isAdmitted) {
@@ -258,7 +267,14 @@ export default function MeetingRoom() {
         {isPeopleOpen && (
           <aside className="fixed inset-y-0 right-0 z-20 w-80 bg-gray-800 border-l border-gray-700 flex flex-col shadow-2xl md:relative md:rounded-xl md:my-2 md:mr-2">
             <div className="p-4 border-b border-gray-700 flex justify-between items-center bg-gray-800 rounded-t-xl">
-              <h2 className="font-semibold text-lg">People</h2>
+              <h2 className="font-semibold text-lg flex items-center gap-2">
+                People
+                {isHost && activeJoinRequests.length > 0 && (
+                  <span className="bg-red-500 text-white text-xs font-bold px-2 py-0.5 rounded-full animate-pulse">
+                    {activeJoinRequests.length} waiting
+                  </span>
+                )}
+              </h2>
               <button className="text-gray-400 hover:text-white md:hidden" onClick={() => setIsPeopleOpen(false)}>✕</button>
             </div>
             
