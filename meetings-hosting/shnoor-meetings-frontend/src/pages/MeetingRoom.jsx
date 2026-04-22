@@ -10,6 +10,7 @@ export default function MeetingRoom() {
   const { id: roomId } = useParams();
   const navigate = useNavigate();
   const [isAdmitted, setIsAdmitted] = useState(() => sessionStorage.getItem(`meeting_admitted_${roomId}`) === 'true');
+  const storedRole = sessionStorage.getItem(`meeting_role_${roomId}`);
   const normalizedCurrentEmail = (getCurrentUser()?.email || '').trim().toLowerCase();
   const storedHostEmail = (localStorage.getItem(`meeting_host_${roomId}`) || '').trim().toLowerCase();
   const isStoredHost = Boolean(normalizedCurrentEmail && storedHostEmail && normalizedCurrentEmail === storedHostEmail);
@@ -34,7 +35,10 @@ export default function MeetingRoom() {
     isAudioEnabled,
     isVideoEnabled,
     localClientId,
-  } = useWebRTC(roomId, { autoJoin: isAdmitted || isStoredHost });
+  } = useWebRTC(roomId, {
+    autoJoin: isAdmitted || isStoredHost,
+    initialRole: isStoredHost || storedRole === 'host' ? 'host' : storedRole === 'participant' ? 'participant' : undefined,
+  });
 
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [isPeopleOpen, setIsPeopleOpen] = useState(false);
