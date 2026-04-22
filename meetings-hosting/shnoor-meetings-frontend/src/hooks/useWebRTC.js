@@ -16,12 +16,6 @@ const ICE_SERVERS = {
 };
 
 function getStableClientId(roomId) {
-  const currentUser = getCurrentUser();
-  if (currentUser?.meetingUserId) {
-    sessionStorage.setItem(`meeting_client_${roomId}`, currentUser.meetingUserId);
-    return currentUser.meetingUserId;
-  }
-
   const storageKey = `meeting_client_${roomId}`;
   const existingId = sessionStorage.getItem(storageKey);
 
