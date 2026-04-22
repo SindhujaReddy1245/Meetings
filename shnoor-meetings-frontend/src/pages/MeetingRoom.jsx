@@ -4,10 +4,15 @@ import { useWebRTC } from '../hooks/useWebRTC';
 import VideoGrid from '../components/VideoGrid';
 import MeetingControls from '../components/MeetingControls';
 import { Send, Users, Info, Video, Check, X } from 'lucide-react';
+import { getCurrentUser } from '../utils/currentUser';
 
 export default function MeetingRoom() {
   const { id: roomId } = useParams();
   const navigate = useNavigate();
+  const [isAdmitted, setIsAdmitted] = useState(() => sessionStorage.getItem(`meeting_admitted_${roomId}`) === 'true');
+  const normalizedCurrentEmail = (getCurrentUser()?.email || '').trim().toLowerCase();
+  const storedHostEmail = (localStorage.getItem(`meeting_host_${roomId}`) || '').trim().toLowerCase();
+  const isStoredHost = Boolean(normalizedCurrentEmail && storedHostEmail && normalizedCurrentEmail === storedHostEmail);
   const {
     localStream,
     remoteStreams,
@@ -28,23 +33,60 @@ export default function MeetingRoom() {
     displayName,
     isAudioEnabled,
     isVideoEnabled,
-  } = useWebRTC(roomId);
+    localClientId,
+  } = useWebRTC(roomId, { autoJoin: isAdmitted || isStoredHost });
 
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [isPeopleOpen, setIsPeopleOpen] = useState(false);
+  const prevJoinRequestsCount = useRef(0);
   const [isCaptionsOn, setIsCaptionsOn] = useState(false);
   const [currentCaptionText, setCurrentCaptionText] = useState('');
   const recognitionRef = useRef(null);
   const [chatInput, setChatInput] = useState('');
   const messagesEndRef = useRef(null);
-  const isAdmitted = sessionStorage.getItem(`meeting_admitted_${roomId}`) === 'true';
   const latestJoinRequest = activeJoinRequests[0] || null;
+  const inCallParticipantIds = Object.keys(participantsMetadata).filter((peerId) => peerId !== localClientId);
+
+  useEffect(() => {
+    if (isHost && activeJoinRequests.length > prevJoinRequestsCount.current) {
+      setIsPeopleOpen(true);
+      setIsChatOpen(false);
+    }
+    prevJoinRequestsCount.current = activeJoinRequests.length;
+  }, [activeJoinRequests.length, isHost]);
 
   useEffect(() => {
     if (!isHost && !isAdmitted) {
-      navigate(`/room/${roomId}`, { replace: true });
+      navigate(`/meeting/${roomId}?role=participant`, { replace: true });
     }
   }, [isAdmitted, isHost, navigate, roomId]);
+
+  useEffect(() => {
+    const handleDenied = (event) => {
+      if (event.detail?.roomId !== roomId) {
+        return;
+      }
+
+      setIsAdmitted(false);
+      navigate(`/meeting/${roomId}?role=participant`, { replace: true });
+    };
+
+    const handleAdmitted = (event) => {
+      if (event.detail?.roomId !== roomId) {
+        return;
+      }
+
+      setIsAdmitted(true);
+    };
+
+    window.addEventListener('meeting-denied', handleDenied);
+    window.addEventListener('meeting-admitted', handleAdmitted);
+
+    return () => {
+      window.removeEventListener('meeting-denied', handleDenied);
+      window.removeEventListener('meeting-admitted', handleAdmitted);
+    };
+  }, [navigate, roomId]);
 
   const handleSendMessage = (e) => {
     e.preventDefault();
@@ -124,7 +166,7 @@ export default function MeetingRoom() {
         </div>
         <div className="flex items-center text-gray-400">
           <Users size={20} className="mr-2" /> 
-          <span className="font-medium">{1 + Object.keys(remoteStreams).length}</span>
+          <span className="font-medium">{1 + inCallParticipantIds.length}</span>
         </div>
       </header>
 
@@ -254,7 +296,14 @@ export default function MeetingRoom() {
         {isPeopleOpen && (
           <aside className="fixed inset-y-0 right-0 z-20 w-80 bg-gray-800 border-l border-gray-700 flex flex-col shadow-2xl md:relative md:rounded-xl md:my-2 md:mr-2">
             <div className="p-4 border-b border-gray-700 flex justify-between items-center bg-gray-800 rounded-t-xl">
-              <h2 className="font-semibold text-lg">People</h2>
+              <h2 className="font-semibold text-lg flex items-center gap-2">
+                People
+                {isHost && activeJoinRequests.length > 0 && (
+                  <span className="bg-red-500 text-white text-xs font-bold px-2 py-0.5 rounded-full animate-pulse">
+                    {activeJoinRequests.length} waiting
+                  </span>
+                )}
+              </h2>
               <button className="text-gray-400 hover:text-white md:hidden" onClick={() => setIsPeopleOpen(false)}>✕</button>
             </div>
             
@@ -313,7 +362,7 @@ export default function MeetingRoom() {
                       {displayName || 'You'} {isHost ? '(Host)' : '(You)'}
                     </span>
                   </div>
-                  {Object.keys(remoteStreams).map(peerId => (
+                  {inCallParticipantIds.map(peerId => (
                     <div key={peerId} className="flex items-center gap-3 py-2">
                       <div className="w-8 h-8 rounded-full bg-gray-600 flex items-center justify-center text-white text-xs font-bold">
                         {(participantsMetadata[peerId]?.name || 'Participant').charAt(0)}

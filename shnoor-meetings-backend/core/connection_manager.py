@@ -1,6 +1,5 @@
-from typing import Dict, List, Any
+from typing import Dict, List
 from fastapi import WebSocket
-import json
 import logging
 
 logger = logging.getLogger(__name__)
@@ -15,6 +14,7 @@ class ConnectionManager:
         self.user_records: Dict[str, Dict[WebSocket, str]] = {}
         self.connection_users: Dict[str, Dict[WebSocket, dict]] = {}
         self.waiting_requests: Dict[str, Dict[str, dict]] = {}
+        self.accepted_participants: Dict[str, set[str]] = {}
 
     async def connect(self, websocket: WebSocket, room_id: str, client_id: str):
         await websocket.accept()
@@ -23,9 +23,15 @@ class ConnectionManager:
             self.user_records[room_id] = {}
             self.connection_users[room_id] = {}
             self.waiting_requests[room_id] = {}
+            self.accepted_participants[room_id] = set()
             
         self.active_connections[room_id].append(websocket)
         self.user_records[room_id][websocket] = client_id
+        self.connection_users[room_id][websocket] = {
+            "client_id": client_id,
+            "joined": False,
+            "role": None,
+        }
         
         logger.info(f"Client {client_id} joined room {room_id}")
 
@@ -48,38 +54,61 @@ class ConnectionManager:
                 del self.user_records[room_id]
                 self.connection_users.pop(room_id, None)
                 self.waiting_requests.pop(room_id, None)
+                self.accepted_participants.pop(room_id, None)
 
         return metadata
 
-    async def broadcast_to_room(self, room_id: str, message: dict, sender: WebSocket = None):
+    async def broadcast_to_joined(self, room_id: str, message: dict, sender: WebSocket = None):
         """
-        Broadcasts a message to all users in the room, optionally excluding the sender.
+        Broadcasts a message to clients that have fully joined the room,
+        optionally excluding the sender.
         """
         if room_id in self.active_connections:
             for connection in self.active_connections[room_id]:
-                if connection != sender:
-                    try:
-                        await connection.send_json(message)
-                    except Exception as e:
-                        logger.error(f"Error sending message to client: {e}")
+                metadata = self.connection_users.get(room_id, {}).get(connection, {})
+                if connection == sender or not metadata.get("joined"):
+                    continue
+
+                try:
+                    await connection.send_json(message)
+                except Exception as e:
+                    logger.error(f"Error sending message to client: {e}")
 
     async def send_to_client(self, room_id: str, client_id: str, message: dict):
         if room_id not in self.user_records:
             return
 
+        delivered = False
+
         for connection, stored_client_id in self.user_records[room_id].items():
             if stored_client_id == client_id:
                 try:
                     await connection.send_json(message)
+                    delivered = True
                 except Exception as e:
                     logger.error(f"Error sending targeted message to client {client_id}: {e}")
-                return
+
+        if not delivered:
+            logger.warning(f"No active websocket accepted targeted message for client {client_id} in room {room_id}")
 
     async def send_to_websocket(self, websocket: WebSocket, message: dict):
         try:
             await websocket.send_json(message)
         except Exception as e:
             logger.error(f"Error sending websocket message: {e}")
+
+    async def send_to_role(self, room_id: str, role: str, message: dict):
+        if room_id not in self.connection_users:
+            return
+
+        for connection, metadata in list(self.connection_users[room_id].items()):
+            if (metadata or {}).get("role") != role:
+                continue
+
+            try:
+                await connection.send_json(message)
+            except Exception as e:
+                logger.error(f"Error sending message to {role} connection: {e}")
 
     def set_connection_user(self, room_id: str, websocket: WebSocket, metadata: dict):
         if room_id not in self.connection_users:
@@ -105,9 +134,42 @@ class ConnectionManager:
 
     def remove_waiting_request(self, room_id: str, client_id: str):
         if room_id in self.waiting_requests:
-            self.waiting_requests[room_id].pop(client_id, None)
+            return self.waiting_requests[room_id].pop(client_id, None)
+        return None
 
     def get_waiting_requests(self, room_id: str):
         return list(self.waiting_requests.get(room_id, {}).values())
+
+    def add_accepted_participant(self, room_id: str, client_id: str):
+        if room_id not in self.accepted_participants:
+            self.accepted_participants[room_id] = set()
+
+        self.accepted_participants[room_id].add(client_id)
+
+    def is_participant_accepted(self, room_id: str, client_id: str):
+        return client_id in self.accepted_participants.get(room_id, set())
+
+    def get_joined_participants(self, room_id: str):
+        participants = []
+
+        for metadata in self.connection_users.get(room_id, {}).values():
+            if not metadata.get("joined"):
+                continue
+
+            participants.append({
+                "id": metadata.get("client_id"),
+                "name": metadata.get("name") or "Participant",
+                "role": metadata.get("role") or "participant",
+                "isHandRaised": bool(metadata.get("isHandRaised")),
+                "isSharingScreen": bool(metadata.get("isSharingScreen")),
+            })
+
+        return participants
+
+    def has_host_presence(self, room_id: str):
+        return any(
+            (metadata or {}).get("role") == "host"
+            for metadata in self.connection_users.get(room_id, {}).values()
+        )
 
 manager = ConnectionManager()

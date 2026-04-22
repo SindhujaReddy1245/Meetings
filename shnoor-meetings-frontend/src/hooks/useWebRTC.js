@@ -16,12 +16,6 @@ const ICE_SERVERS = {
 };
 
 function getStableClientId(roomId) {
-  const currentUser = getCurrentUser();
-  if (currentUser?.meetingUserId) {
-    sessionStorage.setItem(`meeting_client_${roomId}`, currentUser.meetingUserId);
-    return currentUser.meetingUserId;
-  }
-
   const storageKey = `meeting_client_${roomId}`;
   const existingId = sessionStorage.getItem(storageKey);
 
@@ -279,6 +273,17 @@ export function useWebRTC(roomId, options = {}) {
           return;
         }
 
+        setParticipantsMetadata((prev) => ({
+          ...prev,
+          [peerId]: {
+            ...prev[peerId],
+            name: data.name || prev[peerId]?.name || 'Participant',
+            role: data.role || prev[peerId]?.role || 'participant',
+            isHandRaised: prev[peerId]?.isHandRaised || false,
+            isSharingScreen: prev[peerId]?.isSharingScreen || false,
+          },
+        }));
+
         await pcOffer.setRemoteDescription(new RTCSessionDescription(data.offer));
         const answer = await pcOffer.createAnswer();
         await pcOffer.setLocalDescription(answer);
@@ -359,7 +364,44 @@ export function useWebRTC(roomId, options = {}) {
         }));
         break;
 
+      case 'participant-roster':
+        if (Array.isArray(data.participants)) {
+          setParticipantsMetadata((prev) => {
+            const nextMetadata = {
+              [clientId.current]: {
+                ...prev[clientId.current],
+                name: displayName.current,
+                role: isHost.current ? 'host' : 'participant',
+                isHandRaised,
+                isSharingScreen,
+              },
+            };
+
+            data.participants.forEach((participant) => {
+              if (!participant?.id || participant.id === clientId.current) {
+                return;
+              }
+
+              nextMetadata[participant.id] = {
+                ...prev[participant.id],
+                name: participant.name || prev[participant.id]?.name || 'Participant',
+                role: participant.role || prev[participant.id]?.role || 'participant',
+                isHandRaised: typeof participant.isHandRaised === 'boolean'
+                  ? participant.isHandRaised
+                  : prev[participant.id]?.isHandRaised || false,
+                isSharingScreen: typeof participant.isSharingScreen === 'boolean'
+                  ? participant.isSharingScreen
+                  : prev[participant.id]?.isSharingScreen || false,
+              };
+            });
+
+            return nextMetadata;
+          });
+        }
+        break;
+
       case 'join-request':
+      case 'join_request':
         if (isHost.current) {
           setActiveJoinRequests((prev) => {
             if (prev.find((request) => request.id === peerId)) {
@@ -384,11 +426,17 @@ export function useWebRTC(roomId, options = {}) {
         break;
 
       case 'admit':
+      case 'accepted':
         sessionStorage.setItem(`meeting_admitted_${roomId}`, 'true');
         window.dispatchEvent(new CustomEvent('meeting-admitted', { detail: { roomId } }));
         break;
 
       case 'deny':
+        window.dispatchEvent(new CustomEvent('meeting-denied', { detail: { roomId } }));
+        break;
+
+      case 'join-blocked':
+        sessionStorage.removeItem(`meeting_admitted_${roomId}`);
         window.dispatchEvent(new CustomEvent('meeting-denied', { detail: { roomId } }));
         break;
 
@@ -416,7 +464,12 @@ export function useWebRTC(roomId, options = {}) {
     setIsHostState(nextIsHost);
 
     if (!wasHost && nextIsHost && ws.current?.readyState === WebSocket.OPEN) {
-      ws.current.send(JSON.stringify({ type: 'host-ready' }));
+      ws.current.send(JSON.stringify({
+        type: 'host_join',
+        user_id: currentUser.current?.meetingUserId || clientId.current,
+        email: currentUser.current?.email || null,
+        name: displayName.current,
+      }));
     }
   }, [computeIsHost]);
 
@@ -471,7 +524,12 @@ export function useWebRTC(roomId, options = {}) {
           pendingMessagesRef.current = [];
 
           if (isHost.current) {
-            ws.current?.send(JSON.stringify({ type: 'host-ready' }));
+            ws.current?.send(JSON.stringify({
+              type: 'host_join',
+              user_id: currentUser.current?.meetingUserId || clientId.current,
+              email: currentUser.current?.email || null,
+              name: displayName.current,
+            }));
           }
 
           if (autoJoin) {
@@ -517,7 +575,7 @@ export function useWebRTC(roomId, options = {}) {
   }, [acquireMedia, autoJoin, roomId, endSessionTracking]);
 
   const admitParticipant = useCallback((participantId) => {
-    sendSignalingMessage({ type: 'admit', target: participantId });
+    sendSignalingMessage({ type: 'accept_user', target: participantId });
     setActiveJoinRequests((prev) => prev.filter((request) => request.id !== participantId));
   }, [sendSignalingMessage]);
 
@@ -530,8 +588,9 @@ export function useWebRTC(roomId, options = {}) {
     sessionStorage.setItem(`meeting_name_${roomId}`, name);
     displayName.current = name;
     sendSignalingMessage({
-      type: 'join-request',
+      type: 'ask_to_join',
       user_id: clientId.current,
+      firebase_uid: currentUser.current?.firebaseUid || null,
       email: currentUser.current?.email || null,
       name,
       requested_at: new Date().toISOString(),
@@ -707,5 +766,6 @@ export function useWebRTC(roomId, options = {}) {
     displayName: displayName.current,
     isAudioEnabled,
     isVideoEnabled,
+    localClientId: clientId.current,
   };
 }

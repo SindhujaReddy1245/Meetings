@@ -13,13 +13,14 @@ export default function LobbyPage() {
   const { id: roomId } = useParams();
   const location = useLocation();
   const navigate = useNavigate();
+  const currentUser = getCurrentUser();
   const videoRef = useRef(null);
   const roleFromLink = new URLSearchParams(location.search).get('role');
   const storedRole = sessionStorage.getItem(`meeting_role_${roomId}`);
   const normalizedCurrentEmail = (getCurrentUser()?.email || '').trim().toLowerCase();
   const storedHostEmail = (localStorage.getItem(`meeting_host_${roomId}`) || '').trim().toLowerCase();
   const storedHostFlag = Boolean(normalizedCurrentEmail && storedHostEmail && storedHostEmail === normalizedCurrentEmail);
-  const storedParticipantName = sessionStorage.getItem(`meeting_name_${roomId}`) || 'Guest';
+  const storedParticipantName = sessionStorage.getItem(`meeting_name_${roomId}`) || currentUser?.name || 'Guest';
   const [resolvedRole, setResolvedRole] = useState(() => (storedRole === 'host' || storedHostFlag
     ? 'host'
     : roleFromLink === 'participant'
@@ -27,13 +28,11 @@ export default function LobbyPage() {
       : storedRole === 'participant'
         ? 'participant'
         : undefined));
-  
-  const currentUser = getCurrentUser();
   const [stream, setStream] = useState(null);
   const initialMediaState = getPreJoinMediaState(roomId);
   const [isMicOn, setIsMicOn] = useState(initialMediaState.audioEnabled);
   const [isVideoOn, setIsVideoOn] = useState(initialMediaState.videoEnabled);
-  const [isHovered, setIsHovered] = useState(false);
+  const [participantName, setParticipantName] = useState(storedParticipantName);
   const [toastMessage, setToastMessage] = useState(null);
   const [isWaiting, setIsWaiting] = useState(false);
   const [showInviteModal, setShowInviteModal] = useState(false);
@@ -49,6 +48,7 @@ export default function LobbyPage() {
   } = useWebRTC(roomId, { acquireMedia: false, autoJoin: false, initialRole: resolvedRole });
 
   const toastTimeoutRef = useRef(null);
+  const joinMeetingRef = useRef(null);
 
   useEffect(() => {
     const params = new URLSearchParams(location.search);
@@ -56,13 +56,17 @@ export default function LobbyPage() {
 
     if (storedHostFlag) {
       sessionStorage.setItem(`meeting_role_${roomId}`, 'host');
+      sessionStorage.setItem(`meeting_name_${roomId}`, currentUser?.name || storedParticipantName);
       setResolvedRole('host');
     } else if (roleFromLink === 'participant') {
       sessionStorage.setItem(`meeting_role_${roomId}`, 'participant');
       sessionStorage.removeItem(`meeting_admitted_${roomId}`);
       setResolvedRole('participant');
+    } else if (storedRole === 'participant') {
+      sessionStorage.removeItem(`meeting_admitted_${roomId}`);
+      setResolvedRole('participant');
     }
-  }, [location.search, roomId, storedHostFlag]);
+  }, [currentUser?.name, location.search, roomId, storedHostFlag, storedParticipantName, storedRole]);
 
   useEffect(() => {
     const checkHostDirectAdmin = async () => {
@@ -81,9 +85,9 @@ export default function LobbyPage() {
           if (isMeetingHost) {
             localStorage.setItem(`meeting_host_${roomId}`, normalizedCurrentEmail);
             sessionStorage.setItem(`meeting_role_${roomId}`, 'host');
+            sessionStorage.setItem(`meeting_name_${roomId}`, currentUser?.name || storedParticipantName);
             setResolvedRole('host');
           } else {
-            localStorage.removeItem(`meeting_host_${roomId}`);
             sessionStorage.setItem(`meeting_role_${roomId}`, 'participant');
             setResolvedRole('participant');
           }
@@ -96,7 +100,11 @@ export default function LobbyPage() {
     if (roomId) {
       checkHostDirectAdmin();
     }
-  }, [roomId, currentUser?.meetingUserId, normalizedCurrentEmail]);
+  }, [currentUser?.meetingUserId, currentUser?.name, normalizedCurrentEmail, roomId, storedParticipantName]);
+
+  useEffect(() => {
+    setParticipantName(sessionStorage.getItem(`meeting_name_${roomId}`) || currentUser?.name || 'Guest');
+  }, [currentUser?.name, roomId]);
 
   useEffect(() => {
     savePreJoinMediaState(roomId, { audioEnabled: isMicOn, videoEnabled: isVideoOn });
@@ -174,7 +182,8 @@ export default function LobbyPage() {
   useEffect(() => {
     const handleAdmitted = (e) => {
       if (e.detail.roomId === roomId) {
-        joinMeeting();
+        setIsWaiting(false);
+        joinMeetingRef.current?.();
       }
     };
     const handleDenied = (e) => {
@@ -192,18 +201,25 @@ export default function LobbyPage() {
   }, [roomId]);
 
   const handleAskToJoin = () => {
+    const trimmedName = participantName.trim() || currentUser?.name || 'Guest';
+    setParticipantName(trimmedName);
     setIsWaiting(true);
-    requestToJoin(storedParticipantName);
-    showToast("Join request sent. Waiting for host...");
+    requestToJoin(trimmedName);
+    showToast("Waiting for host to accept...");
   };
 
   const joinMeeting = () => {
+    const trimmedName = participantName.trim() || currentUser?.name || (resolvedRole === 'host' ? 'Host' : 'Guest');
+    sessionStorage.setItem(`meeting_name_${roomId}`, trimmedName);
+    sessionStorage.setItem(`meeting_admitted_${roomId}`, 'true');
     savePreJoinMediaState(roomId, { audioEnabled: isMicOn, videoEnabled: isVideoOn });
     if (stream) {
       stream.getTracks().forEach(track => track.stop());
     }
-    navigate(`/meeting/${roomId}`);
+    navigate(`/room/${roomId}`);
   };
+
+  joinMeetingRef.current = joinMeeting;
 
   return (
     <div className="flex flex-col h-screen bg-white font-sans overflow-hidden transition-all">
@@ -305,18 +321,30 @@ export default function LobbyPage() {
         {/* Right Side: Join Panel */}
         <div className="flex-1 w-full max-w-sm flex flex-col items-center justify-center space-y-6">
           <h2 className="text-3xl font-normal text-gray-800">Ready to join?</h2>
-          
-
+          <div className="w-full">
+            <label htmlFor="participant-name" className="mb-2 block text-sm font-medium text-gray-600">
+              Your name
+            </label>
+            <input
+              id="participant-name"
+              type="text"
+              value={participantName}
+              onChange={(e) => setParticipantName(e.target.value)}
+              placeholder="Enter your name"
+              className="w-full rounded-2xl border border-gray-200 px-4 py-3 text-gray-700 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+            />
+          </div>
 
           <div className="w-full space-y-4 pt-4">
             {isHost ? (
               <div className="space-y-4 w-full">
                 <button 
                   onClick={joinMeeting}
+                  disabled={!participantName.trim()}
                   className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3.5 rounded-full shadow-lg shadow-blue-100 transition-all transform active:scale-95 text-md flex items-center justify-center gap-2"
                 >
                   <LogIn size={20} />
-                  Start Meeting
+                  Join Meeting
                 </button>
 
                 <button 
@@ -368,11 +396,17 @@ export default function LobbyPage() {
               <>
                 <button 
                   onClick={handleAskToJoin}
-                  disabled={isWaiting}
+                  disabled={isWaiting || !participantName.trim()}
                   className={`w-full font-semibold py-3.5 rounded-full shadow-lg transition-all transform active:scale-95 text-md ${isWaiting ? 'bg-gray-100 text-gray-400 cursor-not-allowed shadow-none' : 'bg-blue-600 hover:bg-blue-700 text-white shadow-blue-100'}`}
                 >
                   {isWaiting ? 'Waiting to be let in...' : 'Ask to join'}
                 </button>
+
+                {isWaiting && (
+                  <div className="rounded-2xl border border-blue-100 bg-blue-50 px-4 py-3 text-sm text-blue-700">
+                    Waiting for host to accept...
+                  </div>
+                )}
                 
                 <button className="w-full flex items-center justify-center gap-2 text-gray-700 hover:bg-gray-100 font-medium py-3 rounded-md border border-gray-200 transition-all text-sm group">
                   Other ways to join
