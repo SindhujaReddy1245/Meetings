@@ -364,6 +364,42 @@ export function useWebRTC(roomId, options = {}) {
         }));
         break;
 
+      case 'participant-roster':
+        if (Array.isArray(data.participants)) {
+          setParticipantsMetadata((prev) => {
+            const nextMetadata = {
+              [clientId.current]: {
+                ...prev[clientId.current],
+                name: displayName.current,
+                role: isHost.current ? 'host' : 'participant',
+                isHandRaised,
+                isSharingScreen,
+              },
+            };
+
+            data.participants.forEach((participant) => {
+              if (!participant?.id || participant.id === clientId.current) {
+                return;
+              }
+
+              nextMetadata[participant.id] = {
+                ...prev[participant.id],
+                name: participant.name || prev[participant.id]?.name || 'Participant',
+                role: participant.role || prev[participant.id]?.role || 'participant',
+                isHandRaised: typeof participant.isHandRaised === 'boolean'
+                  ? participant.isHandRaised
+                  : prev[participant.id]?.isHandRaised || false,
+                isSharingScreen: typeof participant.isSharingScreen === 'boolean'
+                  ? participant.isSharingScreen
+                  : prev[participant.id]?.isSharingScreen || false,
+              };
+            });
+
+            return nextMetadata;
+          });
+        }
+        break;
+
       case 'join-request':
       case 'join_request':
         if (isHost.current) {
@@ -428,7 +464,12 @@ export function useWebRTC(roomId, options = {}) {
     setIsHostState(nextIsHost);
 
     if (!wasHost && nextIsHost && ws.current?.readyState === WebSocket.OPEN) {
-      ws.current.send(JSON.stringify({ type: 'host_join' }));
+      ws.current.send(JSON.stringify({
+        type: 'host_join',
+        user_id: currentUser.current?.meetingUserId || clientId.current,
+        email: currentUser.current?.email || null,
+        name: displayName.current,
+      }));
     }
   }, [computeIsHost]);
 
@@ -483,7 +524,12 @@ export function useWebRTC(roomId, options = {}) {
           pendingMessagesRef.current = [];
 
           if (isHost.current) {
-            ws.current?.send(JSON.stringify({ type: 'host_join' }));
+            ws.current?.send(JSON.stringify({
+              type: 'host_join',
+              user_id: currentUser.current?.meetingUserId || clientId.current,
+              email: currentUser.current?.email || null,
+              name: displayName.current,
+            }));
           }
 
           if (autoJoin) {
@@ -544,6 +590,7 @@ export function useWebRTC(roomId, options = {}) {
     sendSignalingMessage({
       type: 'ask_to_join',
       user_id: clientId.current,
+      firebase_uid: currentUser.current?.firebaseUid || null,
       email: currentUser.current?.email || null,
       name,
       requested_at: new Date().toISOString(),

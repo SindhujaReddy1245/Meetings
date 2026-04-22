@@ -1,6 +1,5 @@
-from typing import Dict, List, Any
+from typing import Dict, List
 from fastapi import WebSocket
-import json
 import logging
 
 logger = logging.getLogger(__name__)
@@ -28,6 +27,11 @@ class ConnectionManager:
             
         self.active_connections[room_id].append(websocket)
         self.user_records[room_id][websocket] = client_id
+        self.connection_users[room_id][websocket] = {
+            "client_id": client_id,
+            "joined": False,
+            "role": None,
+        }
         
         logger.info(f"Client {client_id} joined room {room_id}")
 
@@ -54,17 +58,21 @@ class ConnectionManager:
 
         return metadata
 
-    async def broadcast_to_room(self, room_id: str, message: dict, sender: WebSocket = None):
+    async def broadcast_to_joined(self, room_id: str, message: dict, sender: WebSocket = None):
         """
-        Broadcasts a message to all users in the room, optionally excluding the sender.
+        Broadcasts a message to clients that have fully joined the room,
+        optionally excluding the sender.
         """
         if room_id in self.active_connections:
             for connection in self.active_connections[room_id]:
-                if connection != sender:
-                    try:
-                        await connection.send_json(message)
-                    except Exception as e:
-                        logger.error(f"Error sending message to client: {e}")
+                metadata = self.connection_users.get(room_id, {}).get(connection, {})
+                if connection == sender or not metadata.get("joined"):
+                    continue
+
+                try:
+                    await connection.send_json(message)
+                except Exception as e:
+                    logger.error(f"Error sending message to client: {e}")
 
     async def send_to_client(self, room_id: str, client_id: str, message: dict):
         if room_id not in self.user_records:
@@ -135,5 +143,28 @@ class ConnectionManager:
 
     def is_participant_accepted(self, room_id: str, client_id: str):
         return client_id in self.accepted_participants.get(room_id, set())
+
+    def get_joined_participants(self, room_id: str):
+        participants = []
+
+        for metadata in self.connection_users.get(room_id, {}).values():
+            if not metadata.get("joined"):
+                continue
+
+            participants.append({
+                "id": metadata.get("client_id"),
+                "name": metadata.get("name") or "Participant",
+                "role": metadata.get("role") or "participant",
+                "isHandRaised": bool(metadata.get("isHandRaised")),
+                "isSharingScreen": bool(metadata.get("isSharingScreen")),
+            })
+
+        return participants
+
+    def has_host_presence(self, room_id: str):
+        return any(
+            (metadata or {}).get("role") == "host"
+            for metadata in self.connection_users.get(room_id, {}).values()
+        )
 
 manager = ConnectionManager()

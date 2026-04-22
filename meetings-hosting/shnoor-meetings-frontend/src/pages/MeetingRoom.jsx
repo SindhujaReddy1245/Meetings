@@ -9,7 +9,7 @@ import { getCurrentUser } from '../utils/currentUser';
 export default function MeetingRoom() {
   const { id: roomId } = useParams();
   const navigate = useNavigate();
-  const [isAdmitted] = useState(() => sessionStorage.getItem(`meeting_admitted_${roomId}`) === 'true');
+  const [isAdmitted, setIsAdmitted] = useState(() => sessionStorage.getItem(`meeting_admitted_${roomId}`) === 'true');
   const normalizedCurrentEmail = (getCurrentUser()?.email || '').trim().toLowerCase();
   const storedHostEmail = (localStorage.getItem(`meeting_host_${roomId}`) || '').trim().toLowerCase();
   const isStoredHost = Boolean(normalizedCurrentEmail && storedHostEmail && normalizedCurrentEmail === storedHostEmail);
@@ -57,9 +57,36 @@ export default function MeetingRoom() {
 
   useEffect(() => {
     if (!isHost && !isAdmitted) {
-      navigate(`/meeting/${roomId}`, { replace: true });
+      navigate(`/meeting/${roomId}?role=participant`, { replace: true });
     }
   }, [isAdmitted, isHost, navigate, roomId]);
+
+  useEffect(() => {
+    const handleDenied = (event) => {
+      if (event.detail?.roomId !== roomId) {
+        return;
+      }
+
+      setIsAdmitted(false);
+      navigate(`/meeting/${roomId}?role=participant`, { replace: true });
+    };
+
+    const handleAdmitted = (event) => {
+      if (event.detail?.roomId !== roomId) {
+        return;
+      }
+
+      setIsAdmitted(true);
+    };
+
+    window.addEventListener('meeting-denied', handleDenied);
+    window.addEventListener('meeting-admitted', handleAdmitted);
+
+    return () => {
+      window.removeEventListener('meeting-denied', handleDenied);
+      window.removeEventListener('meeting-admitted', handleAdmitted);
+    };
+  }, [navigate, roomId]);
 
   const handleSendMessage = (e) => {
     e.preventDefault();
