@@ -78,13 +78,18 @@ class ConnectionManager:
         if room_id not in self.user_records:
             return
 
+        delivered = False
+
         for connection, stored_client_id in self.user_records[room_id].items():
             if stored_client_id == client_id:
                 try:
                     await connection.send_json(message)
+                    delivered = True
                 except Exception as e:
                     logger.error(f"Error sending targeted message to client {client_id}: {e}")
-                return
+
+        if not delivered:
+            logger.warning(f"No active websocket accepted targeted message for client {client_id} in room {room_id}")
 
     async def send_to_websocket(self, websocket: WebSocket, message: dict):
         try:

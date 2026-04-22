@@ -5,15 +5,10 @@ import {
   getPreferredMediaConstraints,
   upsertCallHistoryEntry,
 } from '../utils/meetingUtils';
-import { buildWebSocketUrl } from '../utils/api';
+import { buildWebSocketUrl, getIceServerConfig } from '../utils/api';
 import { getCurrentUser } from '../utils/currentUser';
 
-const ICE_SERVERS = {
-  iceServers: [
-    { urls: 'stun:stun.l.google.com:19302' },
-    { urls: 'stun:stun1.l.google.com:19302' },
-  ],
-};
+const ICE_SERVERS = getIceServerConfig();
 
 function getStableClientId(roomId) {
   const storageKey = `meeting_client_${roomId}`;
