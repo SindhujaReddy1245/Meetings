@@ -89,13 +89,13 @@ export default function LandingPage() {
       const data = await response.json();
       if (data.room_id) {
         markMeetingHost(data.room_id);
-        navigate(`/meeting/${data.room_id}`);
+        navigate(`/room/${data.room_id}`);
       }
     } catch (err) {
       console.error('Failed to create instant meeting:', err);
       const fallbackRoomId = frontendRoomId;
       markMeetingHost(fallbackRoomId);
-      navigate(`/meeting/${fallbackRoomId}`);
+      navigate(`/room/${fallbackRoomId}`);
     } finally {
       setIsLoading(false);
     }
@@ -121,7 +121,7 @@ export default function LandingPage() {
       if (data.room_id) {
         markMeetingHost(data.room_id);
         setLaterRoomId(data.room_id);
-        navigate(`/room/${data.room_id}`);
+        setShowInviteModal(true);
       }
     } catch (err) {
       console.error('Failed to create meeting for later:', err);
