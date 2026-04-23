@@ -47,7 +47,10 @@ class CreateEventResponse(BaseModel):
     message: str
 
 @router.get("/events", response_model=List[CalendarEvent])
-async def get_events(user_id: Optional[str] = Query(default=None)):
+async def get_events(
+    user_id: Optional[str] = Query(default=None),
+    user_email: Optional[str] = Query(default=None),
+):
     conn = get_db_connection()
     if not conn:
         raise HTTPException(status_code=500, detail="Database connection is unavailable")
@@ -58,13 +61,39 @@ async def get_events(user_id: Optional[str] = Query(default=None)):
         if user_id and not normalized_user_id:
             raise HTTPException(status_code=400, detail="Invalid user ID")
 
-        if normalized_user_id:
+        normalized_email = (user_email or "").strip().lower() or None
+
+        if normalized_email:
             cursor.execute(
-                "SELECT * FROM calendar_events WHERE user_id = %s ORDER BY start_time ASC",
+                """
+                SELECT calendar_events.*, users.email AS user_email
+                FROM calendar_events
+                LEFT JOIN users ON users.id = calendar_events.user_id
+                WHERE LOWER(COALESCE(users.email, '')) = %s
+                ORDER BY calendar_events.start_time ASC
+                """,
+                (normalized_email,),
+            )
+        elif normalized_user_id:
+            cursor.execute(
+                """
+                SELECT calendar_events.*, users.email AS user_email
+                FROM calendar_events
+                LEFT JOIN users ON users.id = calendar_events.user_id
+                WHERE calendar_events.user_id = %s
+                ORDER BY calendar_events.start_time ASC
+                """,
                 (normalized_user_id,),
             )
         else:
-            cursor.execute("SELECT * FROM calendar_events ORDER BY start_time ASC")
+            cursor.execute(
+                """
+                SELECT calendar_events.*, users.email AS user_email
+                FROM calendar_events
+                LEFT JOIN users ON users.id = calendar_events.user_id
+                ORDER BY calendar_events.start_time ASC
+                """
+            )
         rows = cursor.fetchall()
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to fetch events: {str(e)}")
@@ -75,6 +104,7 @@ async def get_events(user_id: Optional[str] = Query(default=None)):
         CalendarEvent(
             id=row["id"],
             user_id=row["user_id"],
+            user_email=row.get("user_email"),
             title=row["title"],
             description=row["description"],
             start_time=row["start_time"],

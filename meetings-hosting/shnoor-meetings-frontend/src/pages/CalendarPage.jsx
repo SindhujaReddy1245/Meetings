@@ -16,8 +16,12 @@ function normalizeEventCategory(category) {
   return 'meetings';
 }
 
-function getCalendarStorageKey(userId) {
-  return `shnoor_calendar_events_${userId || 'guest'}`;
+function getCalendarIdentityKey(currentUser) {
+  return currentUser?.email?.trim().toLowerCase() || currentUser?.meetingUserId || 'guest';
+}
+
+function getCalendarStorageKey(identityKey) {
+  return `shnoor_calendar_events_${identityKey || 'guest'}`;
 }
 
 function readStoredEvents(userId) {
@@ -106,10 +110,18 @@ export default function CalendarPage() {
 
   const fetchEvents = async () => {
     const userId = currentUser?.meetingUserId || null;
-    const localEvents = readStoredEvents(userId);
+    const userEmail = currentUser?.email?.trim().toLowerCase() || null;
+    const identityKey = getCalendarIdentityKey(currentUser);
+    const localEvents = readStoredEvents(identityKey);
 
     try {
-      const query = userId ? `?user_id=${encodeURIComponent(userId)}` : '';
+      const params = new URLSearchParams();
+      if (userEmail) {
+        params.set('user_email', userEmail);
+      } else if (userId) {
+        params.set('user_id', userId);
+      }
+      const query = params.toString() ? `?${params.toString()}` : '';
       const response = await fetch(buildApiUrl(`/api/calendar/events${query}`));
       if (response.ok) {
         const data = await response.json();
@@ -129,7 +141,7 @@ export default function CalendarPage() {
         const refreshedData = refreshResponse.ok ? await refreshResponse.json() : data;
         const mergedEvents = mergeEvents(refreshedData, localEvents);
         setEvents(mergedEvents);
-        writeStoredEvents(userId, mergedEvents);
+        writeStoredEvents(identityKey, mergedEvents);
         return;
       }
 
@@ -182,8 +194,8 @@ export default function CalendarPage() {
         : null,
     };
 
-    const userId = currentUser?.meetingUserId || null;
-    const existingLocalEvents = readStoredEvents(userId);
+    const identityKey = getCalendarIdentityKey(currentUser);
+    const existingLocalEvents = readStoredEvents(identityKey);
     const nextLocalEvents = mergeEvents(
       [{
         ...payload,
@@ -192,7 +204,7 @@ export default function CalendarPage() {
       existingLocalEvents.filter((event) => event.id !== eventData.id),
     );
 
-    writeStoredEvents(userId, nextLocalEvents);
+    writeStoredEvents(identityKey, nextLocalEvents);
     setEvents(nextLocalEvents);
     setIsModalOpen(false);
 
