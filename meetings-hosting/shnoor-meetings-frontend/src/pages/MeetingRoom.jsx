@@ -14,7 +14,6 @@ export default function MeetingRoom() {
   const normalizedCurrentEmail = (getCurrentUser()?.email || '').trim().toLowerCase();
   const storedHostEmail = (localStorage.getItem(`meeting_host_${roomId}`) || '').trim().toLowerCase();
   const isStoredHost = Boolean(normalizedCurrentEmail && storedHostEmail && normalizedCurrentEmail === storedHostEmail);
-  const shouldShowHostControls = isStoredHost || storedRole === 'host' || isHost;
   const {
     localStream,
     remoteStreams,
@@ -40,6 +39,7 @@ export default function MeetingRoom() {
     autoJoin: isAdmitted || isStoredHost || storedRole === 'host',
     initialRole: isStoredHost || storedRole === 'host' ? 'host' : storedRole === 'participant' ? 'participant' : undefined,
   });
+  const shouldShowHostControls = isStoredHost || storedRole === 'host' || isHost;
 
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [isPeopleOpen, setIsPeopleOpen] = useState(false);

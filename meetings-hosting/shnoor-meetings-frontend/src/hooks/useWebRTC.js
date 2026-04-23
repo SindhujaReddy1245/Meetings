@@ -598,7 +598,7 @@ export function useWebRTC(roomId, options = {}) {
     displayName.current = name;
     sendSignalingMessage({
       type: 'ask_to_join',
-      user_id: clientId.current,
+      user_id: currentUser.current?.meetingUserId || clientId.current,
       firebase_uid: currentUser.current?.firebaseUid || null,
       email: currentUser.current?.email || null,
       name,

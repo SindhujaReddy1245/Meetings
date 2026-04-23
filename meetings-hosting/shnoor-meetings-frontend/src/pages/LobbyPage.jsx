@@ -21,7 +21,6 @@ export default function LobbyPage() {
   const storedHostEmail = (localStorage.getItem(`meeting_host_${roomId}`) || '').trim().toLowerCase();
   const storedHostFlag = Boolean(normalizedCurrentEmail && storedHostEmail && storedHostEmail === normalizedCurrentEmail);
   const storedParticipantName = sessionStorage.getItem(`meeting_name_${roomId}`) || currentUser?.name || 'Guest';
-  const shouldShowHostControls = storedHostFlag || resolvedRole === 'host' || isHost;
   const [resolvedRole, setResolvedRole] = useState(() => (storedRole === 'host' || storedHostFlag
     ? 'host'
     : roleFromLink === 'participant'
@@ -48,6 +47,7 @@ export default function LobbyPage() {
     requestToJoin,
     joinRoom,
   } = useWebRTC(roomId, { acquireMedia: false, autoJoin: false, initialRole: resolvedRole });
+  const shouldShowHostControls = storedHostFlag || resolvedRole === 'host' || isHost;
 
   const toastTimeoutRef = useRef(null);
   const joinMeetingRef = useRef(null);
