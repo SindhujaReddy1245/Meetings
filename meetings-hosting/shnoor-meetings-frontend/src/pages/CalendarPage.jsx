@@ -58,6 +58,38 @@ function mergeEvents(apiEvents, localEvents) {
   );
 }
 
+async function persistEventToApi(event, currentUser, options = {}) {
+  const isEditing = Boolean(options.isEditing);
+  const method = isEditing ? 'PUT' : 'POST';
+  const url = isEditing
+    ? buildApiUrl(`/api/calendar/events/${event.id}`)
+    : buildApiUrl('/api/calendar/events');
+
+  const payload = {
+    ...event,
+    category: normalizeEventCategory(event.category),
+    user_id: currentUser?.meetingUserId || null,
+    user_email: currentUser?.email || null,
+    user_name: currentUser?.name || 'Guest',
+    room_id: normalizeEventCategory(event.category) === 'meetings'
+      ? (event.room_id || event.id || crypto.randomUUID())
+      : null,
+  };
+
+  const response = await fetch(url, {
+    method,
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(errorText || 'Calendar API request failed');
+  }
+
+  return payload;
+}
+
 export default function CalendarPage() {
   const currentUser = getCurrentUser();
   const [currentDate, setCurrentDate] = useState(new Date());
@@ -81,7 +113,21 @@ export default function CalendarPage() {
       const response = await fetch(buildApiUrl(`/api/calendar/events${query}`));
       if (response.ok) {
         const data = await response.json();
-        const mergedEvents = mergeEvents(data, localEvents);
+        const apiEventIds = new Set((Array.isArray(data) ? data : []).map((event) => event.id));
+
+        for (const localEvent of localEvents) {
+          if (!apiEventIds.has(localEvent.id)) {
+            try {
+              await persistEventToApi(localEvent, currentUser, { isEditing: false });
+            } catch (syncError) {
+              console.error('Failed to sync local calendar event to API:', syncError);
+            }
+          }
+        }
+
+        const refreshResponse = await fetch(buildApiUrl(`/api/calendar/events${query}`));
+        const refreshedData = refreshResponse.ok ? await refreshResponse.json() : data;
+        const mergedEvents = mergeEvents(refreshedData, localEvents);
         setEvents(mergedEvents);
         writeStoredEvents(userId, mergedEvents);
         return;
@@ -125,12 +171,6 @@ export default function CalendarPage() {
   };
 
   const handleSaveEvent = async (eventData) => {
-    const isEditing = Boolean(selectedEvent?.id);
-    const method = isEditing ? 'PUT' : 'POST';
-    const url = isEditing
-      ? buildApiUrl(`/api/calendar/events/${eventData.id}`)
-      : buildApiUrl('/api/calendar/events');
-
     const payload = {
       ...eventData,
       category: normalizeEventCategory(eventData.category),
@@ -157,19 +197,8 @@ export default function CalendarPage() {
     setIsModalOpen(false);
 
     try {
-      const response = await fetch(url, {
-        method,
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
-
-      if (response.ok) {
-        await fetchEvents();
-        return;
-      }
-
-      const errorText = await response.text();
-      console.error('Failed to save event to API:', errorText);
+      await persistEventToApi(payload, currentUser, { isEditing: Boolean(selectedEvent?.id) });
+      await fetchEvents();
     } catch (err) {
       console.error('Failed to save event:', err);
     }
