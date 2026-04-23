@@ -3,7 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { useWebRTC } from '../hooks/useWebRTC';
 import VideoGrid from '../components/VideoGrid';
 import MeetingControls from '../components/MeetingControls';
-import { Send, Users, Info, Video, Check, X } from 'lucide-react';
+import { Send, Users, Info, Video, Check, X, Copy, Link as LinkIcon } from 'lucide-react';
 import { getCurrentUser } from '../utils/currentUser';
 
 export default function MeetingRoom() {
@@ -51,6 +51,7 @@ export default function MeetingRoom() {
   const messagesEndRef = useRef(null);
   const latestJoinRequest = activeJoinRequests[0] || null;
   const inCallParticipantIds = Object.keys(participantsMetadata).filter((peerId) => peerId !== localClientId);
+  const inviteLink = `${window.location.origin}/meeting/${roomId}?role=participant`;
 
   useEffect(() => {
     if (shouldShowHostControls && activeJoinRequests.length > prevJoinRequestsCount.current) {
@@ -158,6 +159,11 @@ export default function MeetingRoom() {
     alert('Meeting code copied to clipboard!');
   };
 
+  const copyInviteLink = () => {
+    navigator.clipboard.writeText(inviteLink);
+    alert('Meeting link copied to clipboard!');
+  };
+
   return (
     <div className="h-screen w-full bg-gray-900 flex flex-col overflow-hidden text-white font-sans">
       {/* Top Header */}
@@ -168,6 +174,17 @@ export default function MeetingRoom() {
           <span className="text-gray-400 text-sm bg-gray-800 px-3 py-1 rounded border border-gray-700 ml-4 hidden md:inline-flex items-center cursor-pointer hover:bg-gray-700" onClick={copyRoomCode}>
             Code: {roomId} <Info size={14} className="ml-2" />
           </span>
+          {shouldShowHostControls && (
+            <button
+              onClick={copyInviteLink}
+              className="text-gray-300 text-sm bg-blue-950/70 px-3 py-1 rounded border border-blue-800 hidden lg:inline-flex items-center gap-2 hover:bg-blue-900/70 max-w-[420px]"
+              title={inviteLink}
+            >
+              <LinkIcon size={14} className="shrink-0" />
+              <span className="truncate">Link: {inviteLink}</span>
+              <Copy size={14} className="shrink-0" />
+            </button>
+          )}
         </div>
         <div className="flex items-center text-gray-400">
           <Users size={20} className="mr-2" /> 
