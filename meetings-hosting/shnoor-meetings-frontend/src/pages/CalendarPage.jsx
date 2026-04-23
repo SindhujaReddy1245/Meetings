@@ -16,6 +16,48 @@ function normalizeEventCategory(category) {
   return 'meetings';
 }
 
+function getCalendarStorageKey(userId) {
+  return `shnoor_calendar_events_${userId || 'guest'}`;
+}
+
+function readStoredEvents(userId) {
+  try {
+    const stored = localStorage.getItem(getCalendarStorageKey(userId));
+    const parsed = JSON.parse(stored || '[]');
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (error) {
+    console.error('Failed to read saved calendar events:', error);
+    return [];
+  }
+}
+
+function writeStoredEvents(userId, nextEvents) {
+  try {
+    localStorage.setItem(getCalendarStorageKey(userId), JSON.stringify(nextEvents));
+  } catch (error) {
+    console.error('Failed to store calendar events locally:', error);
+  }
+}
+
+function mergeEvents(apiEvents, localEvents) {
+  const eventMap = new Map();
+
+  [...localEvents, ...apiEvents].forEach((event) => {
+    if (!event?.id) {
+      return;
+    }
+
+    eventMap.set(event.id, {
+      ...event,
+      category: normalizeEventCategory(event.category),
+    });
+  });
+
+  return Array.from(eventMap.values()).sort(
+    (a, b) => new Date(a.start_time) - new Date(b.start_time),
+  );
+}
+
 export default function CalendarPage() {
   const currentUser = getCurrentUser();
   const [currentDate, setCurrentDate] = useState(new Date());
@@ -31,20 +73,27 @@ export default function CalendarPage() {
   }, []);
 
   const fetchEvents = async () => {
+    const userId = currentUser?.meetingUserId || null;
+    const localEvents = readStoredEvents(userId);
+
     try {
-      const userId = currentUser?.meetingUserId;
       const query = userId ? `?user_id=${encodeURIComponent(userId)}` : '';
       const response = await fetch(buildApiUrl(`/api/calendar/events${query}`));
       if (response.ok) {
         const data = await response.json();
-        setEvents(data.map((event) => ({
-          ...event,
-          category: normalizeEventCategory(event.category),
-        })));
+        const mergedEvents = mergeEvents(data, localEvents);
+        setEvents(mergedEvents);
+        writeStoredEvents(userId, mergedEvents);
+        return;
       }
+
+      const errorText = await response.text();
+      console.error('Failed to fetch events from API:', errorText);
     } catch (err) {
       console.error('Failed to fetch events:', err);
     }
+
+    setEvents(mergeEvents([], localEvents));
   };
 
   const handlePrev = () => {
@@ -93,6 +142,20 @@ export default function CalendarPage() {
         : null,
     };
 
+    const userId = currentUser?.meetingUserId || null;
+    const existingLocalEvents = readStoredEvents(userId);
+    const nextLocalEvents = mergeEvents(
+      [{
+        ...payload,
+        id: eventData.id,
+      }],
+      existingLocalEvents.filter((event) => event.id !== eventData.id),
+    );
+
+    writeStoredEvents(userId, nextLocalEvents);
+    setEvents(nextLocalEvents);
+    setIsModalOpen(false);
+
     try {
       const response = await fetch(url, {
         method,
@@ -102,8 +165,11 @@ export default function CalendarPage() {
 
       if (response.ok) {
         await fetchEvents();
-        setIsModalOpen(false);
+        return;
       }
+
+      const errorText = await response.text();
+      console.error('Failed to save event to API:', errorText);
     } catch (err) {
       console.error('Failed to save event:', err);
     }
