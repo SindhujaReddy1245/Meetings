@@ -56,6 +56,14 @@ function mergeEvents(apiEvents, localEvents) {
   );
 }
 
+function writeStoredEvents(identityKey, nextEvents) {
+  try {
+    localStorage.setItem(getCalendarStorageKey(identityKey), JSON.stringify(nextEvents));
+  } catch (error) {
+    console.error('Failed to store calendar events for landing page:', error);
+  }
+}
+
 export default function LandingPage() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [meetingCode, setMeetingCode] = useState('');
@@ -71,6 +79,7 @@ export default function LandingPage() {
   const dropdownRef = useRef(null);
   const navigate = useNavigate();
   const location = useLocation();
+  const identityKey = getCalendarIdentityKey(currentUser);
 
   const markMeetingHost = (roomId) => {
     const normalizedEmail = (currentUser?.email || '').trim().toLowerCase();
@@ -157,6 +166,29 @@ export default function LandingPage() {
       .sort((a, b) => new Date(a.start_time) - new Date(b.start_time))
       .slice(0, 4)
   ), [scheduledMeetings]);
+
+  const handleRemoveScheduledMeeting = async (meetingId) => {
+    if (!meetingId) {
+      return;
+    }
+
+    const localEvents = readStoredEvents(identityKey);
+    const nextLocalEvents = localEvents.filter((event) => event.id !== meetingId);
+    writeStoredEvents(identityKey, nextLocalEvents);
+    setScheduledMeetings((prev) => prev.filter((event) => event.id !== meetingId));
+
+    try {
+      const response = await fetch(buildApiUrl(`/api/calendar/events/${meetingId}`), {
+        method: 'DELETE',
+      });
+
+      if (!response.ok) {
+        throw new Error(await response.text());
+      }
+    } catch (error) {
+      console.error('Failed to remove scheduled meeting from API:', error);
+    }
+  };
 
   const extractRoomId = (value) => {
     const trimmedValue = value.trim();
@@ -371,6 +403,17 @@ export default function LandingPage() {
                         <div className="text-xs font-medium text-blue-700 whitespace-nowrap">
                           {formatDistanceToNowStrict(new Date(meeting.start_time))} left
                         </div>
+                      </div>
+                      <div className="mt-3 flex justify-end">
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveScheduledMeeting(meeting.id)}
+                          className="inline-flex h-8 w-8 items-center justify-center rounded-full text-gray-400 transition-colors hover:bg-red-50 hover:text-red-600"
+                          aria-label={`Remove ${meeting.title || 'scheduled meeting'}`}
+                          title="Remove scheduled meeting"
+                        >
+                          <X size={16} />
+                        </button>
                       </div>
                     </div>
                   ))
