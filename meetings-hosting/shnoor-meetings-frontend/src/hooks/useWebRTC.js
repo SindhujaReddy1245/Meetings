@@ -423,7 +423,6 @@ export function useWebRTC(roomId, options = {}) {
       case 'admit':
       case 'accepted':
         sessionStorage.setItem(`meeting_admitted_${roomId}`, 'true');
-        joinRoomCallbackRef.current?.();
         window.dispatchEvent(new CustomEvent('meeting-admitted', { detail: { roomId } }));
         break;
 

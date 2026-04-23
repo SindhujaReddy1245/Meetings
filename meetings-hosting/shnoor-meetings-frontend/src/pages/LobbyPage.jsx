@@ -185,7 +185,6 @@ export default function LobbyPage() {
     const handleAdmitted = (e) => {
       if (e.detail.roomId === roomId) {
         setIsWaiting(false);
-        joinRoom();
         joinMeetingRef.current?.();
       }
     };
@@ -201,7 +200,7 @@ export default function LobbyPage() {
       window.removeEventListener('meeting-admitted', handleAdmitted);
       window.removeEventListener('meeting-denied', handleDenied);
     };
-  }, [joinRoom, roomId]);
+  }, [roomId]);
 
   const handleAskToJoin = () => {
     const trimmedName = participantName.trim() || currentUser?.name || 'Guest';
