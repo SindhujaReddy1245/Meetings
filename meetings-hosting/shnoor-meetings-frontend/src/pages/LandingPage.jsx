@@ -11,6 +11,51 @@ import illustration from '../assets/illustration.png';
 import { buildApiUrl } from '../utils/api';
 import { getCurrentUser } from '../utils/currentUser';
 
+function normalizeEventCategory(category) {
+  const normalized = `${category || 'meetings'}`.trim().toLowerCase();
+  if (normalized === 'personal') return 'personal';
+  if (['reminder', 'reminders', 'remainder', 'remainders'].includes(normalized)) return 'reminders';
+  return 'meetings';
+}
+
+function getCalendarIdentityKey(currentUser) {
+  return currentUser?.email?.trim().toLowerCase() || currentUser?.meetingUserId || 'guest';
+}
+
+function getCalendarStorageKey(identityKey) {
+  return `shnoor_calendar_events_${identityKey || 'guest'}`;
+}
+
+function readStoredEvents(identityKey) {
+  try {
+    const stored = localStorage.getItem(getCalendarStorageKey(identityKey));
+    const parsed = JSON.parse(stored || '[]');
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (error) {
+    console.error('Failed to read saved calendar events for landing page:', error);
+    return [];
+  }
+}
+
+function mergeEvents(apiEvents, localEvents) {
+  const eventMap = new Map();
+
+  [...localEvents, ...apiEvents].forEach((event) => {
+    if (!event?.id) {
+      return;
+    }
+
+    eventMap.set(event.id, {
+      ...event,
+      category: normalizeEventCategory(event.category),
+    });
+  });
+
+  return Array.from(eventMap.values()).sort(
+    (a, b) => new Date(a.start_time) - new Date(b.start_time),
+  );
+}
+
 export default function LandingPage() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [meetingCode, setMeetingCode] = useState('');
@@ -54,6 +99,7 @@ export default function LandingPage() {
   useEffect(() => {
     const userEmail = currentUser?.email?.trim().toLowerCase();
     const userId = currentUser?.meetingUserId;
+    const identityKey = getCalendarIdentityKey(currentUser);
 
     if (!userEmail && !userId) {
       setScheduledMeetings([]);
@@ -63,6 +109,8 @@ export default function LandingPage() {
     let isCancelled = false;
 
     const loadScheduledMeetings = async () => {
+      const localEvents = readStoredEvents(identityKey);
+
       try {
         const params = new URLSearchParams();
         if (userEmail) {
@@ -78,22 +126,24 @@ export default function LandingPage() {
 
         const data = await response.json();
         if (!isCancelled) {
-          setScheduledMeetings(Array.isArray(data) ? data : []);
+          setScheduledMeetings(mergeEvents(Array.isArray(data) ? data : [], localEvents));
         }
       } catch (error) {
         if (!isCancelled) {
           console.error('Failed to load scheduled meetings for landing page:', error);
-          setScheduledMeetings([]);
+          setScheduledMeetings(mergeEvents([], localEvents));
         }
       }
     };
 
     loadScheduledMeetings();
     window.addEventListener('focus', loadScheduledMeetings);
+    window.addEventListener('storage', loadScheduledMeetings);
 
     return () => {
       isCancelled = true;
       window.removeEventListener('focus', loadScheduledMeetings);
+      window.removeEventListener('storage', loadScheduledMeetings);
     };
   }, [currentUser?.email, currentUser?.meetingUserId]);
 
