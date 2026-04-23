@@ -193,9 +193,18 @@ export function useWebRTC(roomId, options = {}) {
 
     const pc = new RTCPeerConnection(ICE_SERVERS);
 
+    const audioTracks = stream.getAudioTracks();
+    const videoTracks = stream.getVideoTracks();
+
     stream.getTracks().forEach((track) => pc.addTrack(track, stream));
-    pc.addTransceiver('audio', { direction: 'sendrecv' });
-    pc.addTransceiver('video', { direction: 'sendrecv' });
+
+    if (!audioTracks.length) {
+      pc.addTransceiver('audio', { direction: 'recvonly' });
+    }
+
+    if (!videoTracks.length) {
+      pc.addTransceiver('video', { direction: 'recvonly' });
+    }
 
     pc.onicecandidate = (event) => {
       if (event.candidate) {
