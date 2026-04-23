@@ -86,6 +86,7 @@ export function useWebRTC(roomId, options = {}) {
   const activeStreamsRef = useRef([]);
   const joinedRoomRef = useRef(false);
   const activeSessionIdsRef = useRef({});
+  const pendingIceCandidatesRef = useRef({});
   const joinRoomCallbackRef = useRef(null);
   const handleSignalingDataRef = useRef(null);
   const pendingMessagesRef = useRef([]);
@@ -193,6 +194,8 @@ export function useWebRTC(roomId, options = {}) {
     const pc = new RTCPeerConnection(ICE_SERVERS);
 
     stream.getTracks().forEach((track) => pc.addTrack(track, stream));
+    pc.addTransceiver('audio', { direction: 'sendrecv' });
+    pc.addTransceiver('video', { direction: 'sendrecv' });
 
     pc.onicecandidate = (event) => {
       if (event.candidate) {
@@ -214,6 +217,25 @@ export function useWebRTC(roomId, options = {}) {
     peerConnections.current[peerId] = pc;
     return pc;
   }, [sendSignalingMessage]);
+
+  const flushPendingIceCandidates = useCallback(async (peerId) => {
+    const pc = peerConnections.current[peerId];
+    const queuedCandidates = pendingIceCandidatesRef.current[peerId];
+
+    if (!pc?.remoteDescription || !queuedCandidates?.length) {
+      return;
+    }
+
+    while (pendingIceCandidatesRef.current[peerId]?.length) {
+      const candidate = pendingIceCandidatesRef.current[peerId].shift();
+
+      try {
+        await pc.addIceCandidate(new RTCIceCandidate(candidate));
+      } catch (error) {
+        console.error('Error applying queued ICE candidate', error);
+      }
+    }
+  }, []);
 
   const handleSignalingData = useCallback(async (data, stream) => {
     const { type, sender, target } = data;
@@ -280,6 +302,7 @@ export function useWebRTC(roomId, options = {}) {
         }));
 
         await pcOffer.setRemoteDescription(new RTCSessionDescription(data.offer));
+        await flushPendingIceCandidates(peerId);
         const answer = await pcOffer.createAnswer();
         await pcOffer.setLocalDescription(answer);
         sendSignalingMessage({ type: 'answer', target: peerId, answer });
@@ -290,6 +313,7 @@ export function useWebRTC(roomId, options = {}) {
         const pcAnswer = peerConnections.current[peerId];
         if (pcAnswer && pcAnswer.signalingState !== 'stable') {
           await pcAnswer.setRemoteDescription(new RTCSessionDescription(data.answer));
+          await flushPendingIceCandidates(peerId);
         }
         break;
       }
@@ -297,6 +321,14 @@ export function useWebRTC(roomId, options = {}) {
       case 'ice-candidate': {
         const pcIce = peerConnections.current[peerId];
         if (pcIce) {
+          if (!pcIce.remoteDescription) {
+            pendingIceCandidatesRef.current[peerId] = [
+              ...(pendingIceCandidatesRef.current[peerId] || []),
+              data.candidate,
+            ];
+            break;
+          }
+
           try {
             await pcIce.addIceCandidate(new RTCIceCandidate(data.candidate));
           } catch (error) {
@@ -311,6 +343,7 @@ export function useWebRTC(roomId, options = {}) {
           peerConnections.current[peerId].close();
           delete peerConnections.current[peerId];
         }
+        delete pendingIceCandidatesRef.current[peerId];
 
         setRemoteStreams((prev) => {
           const nextStreams = { ...prev };
@@ -442,6 +475,7 @@ export function useWebRTC(roomId, options = {}) {
     addMessage,
     createPeerConnection,
     endSessionTracking,
+    flushPendingIceCandidates,
     roomId,
     sendSignalingMessage,
     startSessionTracking,
@@ -568,6 +602,7 @@ export function useWebRTC(roomId, options = {}) {
 
       Object.values(peerConnections.current).forEach((pc) => pc.close());
       peerConnections.current = {};
+      pendingIceCandidatesRef.current = {};
 
       activeStreamsRef.current.forEach((stream) => {
         stream?.getTracks().forEach((track) => track.stop());
