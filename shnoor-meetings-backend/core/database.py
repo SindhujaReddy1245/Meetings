@@ -382,7 +382,44 @@ def _ensure_tables():
 
     try:
         with conn.cursor() as cursor:
-            cursor.execute("SELECT 1")
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS calendar_events (
+                    id UUID PRIMARY KEY,
+                    user_id UUID NOT NULL,
+                    title TEXT NOT NULL,
+                    description TEXT,
+                    start_time TIMESTAMPTZ NOT NULL,
+                    end_time TIMESTAMPTZ NOT NULL,
+                    category TEXT NOT NULL DEFAULT 'meetings',
+                    room_id UUID NULL
+                )
+                """
+            )
+            cursor.execute(
+                """
+                ALTER TABLE calendar_events
+                ADD COLUMN IF NOT EXISTS reminder_offset_minutes INTEGER NOT NULL DEFAULT 30
+                """
+            )
+            cursor.execute(
+                """
+                ALTER TABLE calendar_events
+                ADD COLUMN IF NOT EXISTS reminder_sent_at TIMESTAMPTZ NULL
+                """
+            )
+            cursor.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_calendar_events_user_start_time
+                ON calendar_events (user_id, start_time)
+                """
+            )
+            cursor.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_calendar_events_reminder_lookup
+                ON calendar_events (reminder_sent_at, start_time)
+                """
+            )
         conn.commit()
     except Exception:
         conn.rollback()

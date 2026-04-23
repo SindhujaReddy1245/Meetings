@@ -1,17 +1,44 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { format, formatDistanceToNowStrict, isAfter } from 'date-fns';
 import { saveUser } from '../services/userService';
 import { ensureFrontendUserId } from '../utils/currentUser';
+import { buildApiUrl } from '../utils/api';
 
 const backendAuthBaseUrl = (
   import.meta.env.VITE_API_BASE_URL ||
   'https://meetings-vr93.onrender.com'
 ).replace(/\/$/, '');
 
+function normalizeEventCategory(category) {
+  const normalized = `${category || 'meetings'}`.trim().toLowerCase();
+  if (normalized === 'personal') return 'personal';
+  if (['reminder', 'reminders', 'remainder', 'remainders'].includes(normalized)) return 'reminders';
+  return 'meetings';
+}
+
+function getCategoryLabel(category) {
+  const normalized = normalizeEventCategory(category);
+  if (normalized === 'personal') return 'Personal';
+  if (normalized === 'reminders') return 'Reminder';
+  return 'Meeting';
+}
+
+function getRemainingLabel(startTime) {
+  const eventDate = new Date(startTime);
+  if (!isAfter(eventDate, new Date())) {
+    return 'Started or passed';
+  }
+
+  return `${formatDistanceToNowStrict(eventDate)} left`;
+}
+
 export default function LoginPage() {
   const navigate = useNavigate();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [calendarPreview, setCalendarPreview] = useState([]);
+  const [isLoadingPreview, setIsLoadingPreview] = useState(false);
 
   useEffect(() => {
     const user = JSON.parse(localStorage.getItem('user'));
@@ -52,6 +79,63 @@ export default function LoginPage() {
 
     completeGoogleLogin();
   }, [navigate]);
+
+  useEffect(() => {
+    const normalizedEmail = email.trim().toLowerCase();
+
+    if (!normalizedEmail || !normalizedEmail.includes('@')) {
+      setCalendarPreview([]);
+      setIsLoadingPreview(false);
+      return;
+    }
+
+    let isCancelled = false;
+    const controller = new AbortController();
+
+    const loadCalendarPreview = async () => {
+      setIsLoadingPreview(true);
+
+      try {
+        const params = new URLSearchParams({ user_email: normalizedEmail });
+        const response = await fetch(buildApiUrl(`/api/calendar/events?${params.toString()}`), {
+          signal: controller.signal,
+        });
+
+        if (!response.ok) {
+          throw new Error(await response.text());
+        }
+
+        const data = await response.json();
+        if (!isCancelled) {
+          setCalendarPreview(Array.isArray(data) ? data : []);
+        }
+      } catch (error) {
+        if (!isCancelled && error.name !== 'AbortError') {
+          console.error('Failed to load calendar preview.', error);
+          setCalendarPreview([]);
+        }
+      } finally {
+        if (!isCancelled) {
+          setIsLoadingPreview(false);
+        }
+      }
+    };
+
+    const timeoutId = window.setTimeout(loadCalendarPreview, 300);
+
+    return () => {
+      isCancelled = true;
+      controller.abort();
+      window.clearTimeout(timeoutId);
+    };
+  }, [email]);
+
+  const upcomingCalendarPreview = useMemo(() => (
+    [...calendarPreview]
+      .filter((event) => event?.start_time)
+      .sort((a, b) => new Date(a.start_time) - new Date(b.start_time))
+      .slice(0, 5)
+  ), [calendarPreview]);
 
   const persistUser = async (userData) => {
     const normalizedUser = ensureFrontendUserId(userData);
@@ -132,6 +216,47 @@ export default function LoginPage() {
           >
             Sign in with Google
           </button>
+        </div>
+
+        <div className="mt-6 rounded-2xl border border-indigo-100 bg-white/80 p-4 shadow-sm">
+          <h2 className="text-sm font-semibold text-gray-800">Your Calendar Patch</h2>
+          <p className="mt-1 text-xs text-gray-500">
+            Enter your email to see your saved meetings, personal items, and reminders.
+          </p>
+
+          <div className="mt-4 space-y-3">
+            {isLoadingPreview ? (
+              <div className="rounded-xl bg-indigo-50 px-3 py-3 text-xs text-indigo-700">
+                Loading your calendar items...
+              </div>
+            ) : upcomingCalendarPreview.length === 0 ? (
+              <div className="rounded-xl border border-dashed border-gray-200 px-3 py-4 text-xs text-gray-500">
+                No saved calendar items found for this email yet.
+              </div>
+            ) : (
+              upcomingCalendarPreview.map((event) => (
+                <div
+                  key={event.id}
+                  className="rounded-xl border border-gray-200 bg-white px-3 py-3"
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-xs font-semibold uppercase tracking-wide text-indigo-600">
+                      {getCategoryLabel(event.category)}
+                    </span>
+                    <span className="text-[11px] font-medium text-gray-500">
+                      {getRemainingLabel(event.start_time)}
+                    </span>
+                  </div>
+                  <div className="mt-2 text-sm font-semibold text-gray-800">
+                    {event.title || 'Untitled'}
+                  </div>
+                  <div className="mt-1 text-xs text-gray-600">
+                    {format(new Date(event.start_time), 'MMM d, yyyy - h:mm a')}
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
         </div>
       </div>
     </div>

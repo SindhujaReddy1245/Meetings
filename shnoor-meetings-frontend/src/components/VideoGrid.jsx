@@ -48,6 +48,18 @@ function VideoPlayer({
   );
 }
 
+function RemoteAudio({ stream }) {
+  const audioRef = useRef(null);
+
+  useEffect(() => {
+    if (audioRef.current && stream) {
+      audioRef.current.srcObject = stream;
+    }
+  }, [stream]);
+
+  return <audio ref={audioRef} autoPlay playsInline />;
+}
+
 export default function VideoGrid({
   localStream,
   remoteStreams,
@@ -111,6 +123,9 @@ export default function VideoGrid({
   if (featuredTile) {
     return (
       <div className="w-full h-full flex flex-col gap-4 p-2">
+        {remoteTiles.map((tile) => (
+          <RemoteAudio key={`audio-${tile.id}`} stream={tile.stream} />
+        ))}
         <div className="flex-1 min-h-0">
           <VideoPlayer
             stream={featuredTile.stream}
@@ -176,6 +191,9 @@ export default function VideoGrid({
 
   return (
     <div className="w-full h-full flex items-center justify-center p-4 overflow-y-auto">
+      {remoteTiles.map((tile) => (
+        <RemoteAudio key={`audio-${tile.id}`} stream={tile.stream} />
+      ))}
       <div className={`grid gap-6 w-full ${standardGridTiles} mx-auto items-center justify-items-center`}>
         <VideoPlayer
           stream={localStream}

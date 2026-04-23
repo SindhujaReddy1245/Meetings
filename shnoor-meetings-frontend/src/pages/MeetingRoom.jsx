@@ -3,13 +3,14 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { useWebRTC } from '../hooks/useWebRTC';
 import VideoGrid from '../components/VideoGrid';
 import MeetingControls from '../components/MeetingControls';
-import { Send, Users, Info, Video, Check, X } from 'lucide-react';
+import { Send, Users, Info, Video, Check, X, Copy, Link as LinkIcon } from 'lucide-react';
 import { getCurrentUser } from '../utils/currentUser';
 
 export default function MeetingRoom() {
   const { id: roomId } = useParams();
   const navigate = useNavigate();
   const [isAdmitted, setIsAdmitted] = useState(() => sessionStorage.getItem(`meeting_admitted_${roomId}`) === 'true');
+  const storedRole = sessionStorage.getItem(`meeting_role_${roomId}`);
   const normalizedCurrentEmail = (getCurrentUser()?.email || '').trim().toLowerCase();
   const storedHostEmail = (localStorage.getItem(`meeting_host_${roomId}`) || '').trim().toLowerCase();
   const isStoredHost = Boolean(normalizedCurrentEmail && storedHostEmail && normalizedCurrentEmail === storedHostEmail);
@@ -34,7 +35,11 @@ export default function MeetingRoom() {
     isAudioEnabled,
     isVideoEnabled,
     localClientId,
-  } = useWebRTC(roomId, { autoJoin: isAdmitted || isStoredHost });
+  } = useWebRTC(roomId, {
+    autoJoin: isAdmitted || isStoredHost || storedRole === 'host',
+    initialRole: isStoredHost || storedRole === 'host' ? 'host' : storedRole === 'participant' ? 'participant' : undefined,
+  });
+  const shouldShowHostControls = isStoredHost || storedRole === 'host' || isHost;
 
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [isPeopleOpen, setIsPeopleOpen] = useState(false);
@@ -46,14 +51,15 @@ export default function MeetingRoom() {
   const messagesEndRef = useRef(null);
   const latestJoinRequest = activeJoinRequests[0] || null;
   const inCallParticipantIds = Object.keys(participantsMetadata).filter((peerId) => peerId !== localClientId);
+  const inviteLink = `${window.location.origin}/meeting/${roomId}?role=participant`;
 
   useEffect(() => {
-    if (isHost && activeJoinRequests.length > prevJoinRequestsCount.current) {
+    if (shouldShowHostControls && activeJoinRequests.length > prevJoinRequestsCount.current) {
       setIsPeopleOpen(true);
       setIsChatOpen(false);
     }
     prevJoinRequestsCount.current = activeJoinRequests.length;
-  }, [activeJoinRequests.length, isHost]);
+  }, [activeJoinRequests.length, shouldShowHostControls]);
 
   useEffect(() => {
     if (!isHost && !isAdmitted) {
@@ -153,6 +159,11 @@ export default function MeetingRoom() {
     alert('Meeting code copied to clipboard!');
   };
 
+  const copyInviteLink = () => {
+    navigator.clipboard.writeText(inviteLink);
+    alert('Meeting link copied to clipboard!');
+  };
+
   return (
     <div className="h-screen w-full bg-gray-900 flex flex-col overflow-hidden text-white font-sans">
       {/* Top Header */}
@@ -163,6 +174,17 @@ export default function MeetingRoom() {
           <span className="text-gray-400 text-sm bg-gray-800 px-3 py-1 rounded border border-gray-700 ml-4 hidden md:inline-flex items-center cursor-pointer hover:bg-gray-700" onClick={copyRoomCode}>
             Code: {roomId} <Info size={14} className="ml-2" />
           </span>
+          {shouldShowHostControls && (
+            <button
+              onClick={copyInviteLink}
+              className="text-gray-300 text-sm bg-blue-950/70 px-3 py-1 rounded border border-blue-800 hidden lg:inline-flex items-center gap-2 hover:bg-blue-900/70 max-w-[420px]"
+              title={inviteLink}
+            >
+              <LinkIcon size={14} className="shrink-0" />
+              <span className="truncate">Link: {inviteLink}</span>
+              <Copy size={14} className="shrink-0" />
+            </button>
+          )}
         </div>
         <div className="flex items-center text-gray-400">
           <Users size={20} className="mr-2" /> 
@@ -233,7 +255,7 @@ export default function MeetingRoom() {
             isCaptionsOn={isCaptionsOn}
             isAudioOn={isAudioEnabled}
             isVideoOn={isVideoEnabled}
-            waitingCount={isHost ? activeJoinRequests.length : 0}
+            waitingCount={shouldShowHostControls ? activeJoinRequests.length : 0}
             toggleChatVisibility={() => {
               setIsChatOpen(!isChatOpen);
               if (!isChatOpen) setIsPeopleOpen(false);
@@ -309,7 +331,7 @@ export default function MeetingRoom() {
             
             <div className="flex-1 overflow-y-auto p-4 space-y-6">
               {/* Waiting Room / Lobby Section */}
-              {isHost && (
+              {shouldShowHostControls && (
                 <div>
                   <div className="flex justify-between items-center mb-3">
                     <h3 className="text-sm font-bold text-gray-400 uppercase tracking-wider text-xs">Waiting in Lobby</h3>
@@ -380,7 +402,7 @@ export default function MeetingRoom() {
         )}
 
         {/* Join Requests Overlay (for Host) - Kept as a toast-like notification if sidebar is closed */}
-        {isHost && activeJoinRequests.length > 0 && !isPeopleOpen && (
+        {shouldShowHostControls && activeJoinRequests.length > 0 && !isPeopleOpen && (
           <div className="fixed top-20 right-4 z-50 w-72 animate-in slide-in-from-right duration-500">
             <div className="bg-white rounded-2xl shadow-2xl p-4 border border-gray-200">
               <div className="flex items-center justify-between mb-3">

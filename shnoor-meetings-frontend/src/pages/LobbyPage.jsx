@@ -44,8 +44,10 @@ export default function LobbyPage() {
     activeJoinRequests, 
     admitParticipant, 
     denyParticipant,
-    requestToJoin 
+    requestToJoin,
+    joinRoom,
   } = useWebRTC(roomId, { acquireMedia: false, autoJoin: false, initialRole: resolvedRole });
+  const shouldShowHostControls = storedHostFlag || resolvedRole === 'host' || isHost;
 
   const toastTimeoutRef = useRef(null);
   const joinMeetingRef = useRef(null);
@@ -208,6 +210,14 @@ export default function LobbyPage() {
     showToast("Waiting for host to accept...");
   };
 
+  const handleHostAccept = (participantId) => {
+    admitParticipant(participantId);
+
+    if (!sessionStorage.getItem(`meeting_admitted_${roomId}`)) {
+      joinMeetingRef.current?.();
+    }
+  };
+
   const joinMeeting = () => {
     const trimmedName = participantName.trim() || currentUser?.name || (resolvedRole === 'host' ? 'Host' : 'Guest');
     sessionStorage.setItem(`meeting_name_${roomId}`, trimmedName);
@@ -336,7 +346,7 @@ export default function LobbyPage() {
           </div>
 
           <div className="w-full space-y-4 pt-4">
-            {isHost ? (
+            {shouldShowHostControls ? (
               <div className="space-y-4 w-full">
                 <button 
                   onClick={joinMeeting}
@@ -372,7 +382,7 @@ export default function LobbyPage() {
                           </div>
                           <div className="flex gap-2">
                             <button 
-                              onClick={() => admitParticipant(req.id)}
+                              onClick={() => handleHostAccept(req.id)}
                               className="px-3 py-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium"
                               title="Accept"
                             >

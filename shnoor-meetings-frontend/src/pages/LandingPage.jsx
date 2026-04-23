@@ -1,6 +1,7 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Video, Keyboard, Plus, Link, Calendar, ChevronDown, ChevronLeft, ChevronRight, X } from 'lucide-react';
+import { format, formatDistanceToNowStrict, isAfter } from 'date-fns';
 import MeetingHeader from '../components/MeetingHeader';
 import MeetingSidebar from '../components/MeetingSidebar';
 import InviteModal from '../components/InviteModal';
@@ -9,6 +10,59 @@ import { Bot } from 'lucide-react';
 import illustration from '../assets/illustration.png';
 import { buildApiUrl } from '../utils/api';
 import { getCurrentUser } from '../utils/currentUser';
+
+function normalizeEventCategory(category) {
+  const normalized = `${category || 'meetings'}`.trim().toLowerCase();
+  if (normalized === 'personal') return 'personal';
+  if (['reminder', 'reminders', 'remainder', 'remainders'].includes(normalized)) return 'reminders';
+  return 'meetings';
+}
+
+function getCalendarIdentityKey(currentUser) {
+  return currentUser?.email?.trim().toLowerCase() || currentUser?.meetingUserId || 'guest';
+}
+
+function getCalendarStorageKey(identityKey) {
+  return `shnoor_calendar_events_${identityKey || 'guest'}`;
+}
+
+function readStoredEvents(identityKey) {
+  try {
+    const stored = localStorage.getItem(getCalendarStorageKey(identityKey));
+    const parsed = JSON.parse(stored || '[]');
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (error) {
+    console.error('Failed to read saved calendar events for landing page:', error);
+    return [];
+  }
+}
+
+function mergeEvents(apiEvents, localEvents) {
+  const eventMap = new Map();
+
+  [...localEvents, ...apiEvents].forEach((event) => {
+    if (!event?.id) {
+      return;
+    }
+
+    eventMap.set(event.id, {
+      ...event,
+      category: normalizeEventCategory(event.category),
+    });
+  });
+
+  return Array.from(eventMap.values()).sort(
+    (a, b) => new Date(a.start_time) - new Date(b.start_time),
+  );
+}
+
+function writeStoredEvents(identityKey, nextEvents) {
+  try {
+    localStorage.setItem(getCalendarStorageKey(identityKey), JSON.stringify(nextEvents));
+  } catch (error) {
+    console.error('Failed to store calendar events for landing page:', error);
+  }
+}
 
 export default function LandingPage() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
@@ -20,10 +74,12 @@ export default function LandingPage() {
   const [showJoinModal, setShowJoinModal] = useState(false);
   const [isChatbotOpen, setIsChatbotOpen] = useState(false);
   const [laterRoomId, setLaterRoomId] = useState('');
+  const [scheduledMeetings, setScheduledMeetings] = useState([]);
   const currentUser = getCurrentUser();
   const dropdownRef = useRef(null);
   const navigate = useNavigate();
   const location = useLocation();
+  const identityKey = getCalendarIdentityKey(currentUser);
 
   const markMeetingHost = (roomId) => {
     const normalizedEmail = (currentUser?.email || '').trim().toLowerCase();
@@ -48,6 +104,91 @@ export default function LandingPage() {
       setIsChatbotOpen(true);
     }
   }, [location.search]);
+
+  useEffect(() => {
+    const userEmail = currentUser?.email?.trim().toLowerCase();
+    const userId = currentUser?.meetingUserId;
+    const identityKey = getCalendarIdentityKey(currentUser);
+
+    if (!userEmail && !userId) {
+      setScheduledMeetings([]);
+      return;
+    }
+
+    let isCancelled = false;
+
+    const loadScheduledMeetings = async () => {
+      const localEvents = readStoredEvents(identityKey);
+
+      try {
+        const params = new URLSearchParams();
+        if (userEmail) {
+          params.set('user_email', userEmail);
+        } else if (userId) {
+          params.set('user_id', userId);
+        }
+
+        const response = await fetch(buildApiUrl(`/api/calendar/events?${params.toString()}`));
+        if (!response.ok) {
+          throw new Error(await response.text());
+        }
+
+        const data = await response.json();
+        if (!isCancelled) {
+          setScheduledMeetings(mergeEvents(Array.isArray(data) ? data : [], localEvents));
+        }
+      } catch (error) {
+        if (!isCancelled) {
+          console.error('Failed to load scheduled meetings for landing page:', error);
+          setScheduledMeetings(mergeEvents([], localEvents));
+        }
+      }
+    };
+
+    loadScheduledMeetings();
+    window.addEventListener('focus', loadScheduledMeetings);
+    window.addEventListener('storage', loadScheduledMeetings);
+
+    return () => {
+      isCancelled = true;
+      window.removeEventListener('focus', loadScheduledMeetings);
+      window.removeEventListener('storage', loadScheduledMeetings);
+    };
+  }, [currentUser?.email, currentUser?.meetingUserId]);
+
+  const upcomingScheduledMeetings = useMemo(() => (
+    scheduledMeetings
+      .filter((event) => {
+        const category = `${event?.category || 'meetings'}`.trim().toLowerCase();
+        return category === 'meetings' || category === 'meeting';
+      })
+      .filter((event) => event?.start_time && isAfter(new Date(event.start_time), new Date()))
+      .sort((a, b) => new Date(a.start_time) - new Date(b.start_time))
+      .slice(0, 4)
+  ), [scheduledMeetings]);
+
+  const handleRemoveScheduledMeeting = async (meetingId) => {
+    if (!meetingId) {
+      return;
+    }
+
+    const localEvents = readStoredEvents(identityKey);
+    const nextLocalEvents = localEvents.filter((event) => event.id !== meetingId);
+    writeStoredEvents(identityKey, nextLocalEvents);
+    setScheduledMeetings((prev) => prev.filter((event) => event.id !== meetingId));
+
+    try {
+      const response = await fetch(buildApiUrl(`/api/calendar/events/${meetingId}`), {
+        method: 'DELETE',
+      });
+
+      if (!response.ok) {
+        throw new Error(await response.text());
+      }
+    } catch (error) {
+      console.error('Failed to remove scheduled meeting from API:', error);
+    }
+  };
 
   const extractRoomId = (value) => {
     const trimmedValue = value.trim();
@@ -225,6 +366,59 @@ export default function LandingPage() {
               <p className="text-gray-500 text-sm">
                 <a href="#" className="text-blue-600 hover:underline">Learn more</a> about Shnoor Meetings
               </p>
+            </div>
+
+            <div className="mt-8 rounded-2xl border border-blue-100 bg-blue-50/60 p-5">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <h2 className="text-lg font-medium text-gray-800">Scheduled Meetings</h2>
+                  <p className="text-sm text-gray-500">Your upcoming meetings from Shnoor Calendar</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => navigate('/calendar')}
+                  className="text-sm font-medium text-blue-600 hover:underline"
+                >
+                  Open calendar
+                </button>
+              </div>
+
+              <div className="mt-4 space-y-3">
+                {upcomingScheduledMeetings.length === 0 ? (
+                  <div className="rounded-xl border border-dashed border-blue-200 bg-white/80 px-4 py-4 text-sm text-gray-500">
+                    No scheduled meetings are showing yet.
+                  </div>
+                ) : (
+                  upcomingScheduledMeetings.map((meeting) => (
+                    <div key={meeting.id} className="rounded-xl bg-white px-4 py-4 shadow-sm border border-blue-100">
+                      <div className="flex items-start justify-between gap-4">
+                        <div>
+                          <div className="text-sm font-semibold text-gray-800">
+                            {meeting.title || 'Untitled meeting'}
+                          </div>
+                          <div className="mt-1 text-xs text-gray-500">
+                            {format(new Date(meeting.start_time), 'MMM d, yyyy - h:mm a')}
+                          </div>
+                        </div>
+                        <div className="text-xs font-medium text-blue-700 whitespace-nowrap">
+                          {formatDistanceToNowStrict(new Date(meeting.start_time))} left
+                        </div>
+                      </div>
+                      <div className="mt-3 flex justify-end">
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveScheduledMeeting(meeting.id)}
+                          className="inline-flex h-8 w-8 items-center justify-center rounded-full text-gray-400 transition-colors hover:bg-red-50 hover:text-red-600"
+                          aria-label={`Remove ${meeting.title || 'scheduled meeting'}`}
+                          title="Remove scheduled meeting"
+                        >
+                          <X size={16} />
+                        </button>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
             </div>
           </div>
 

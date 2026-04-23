@@ -1,6 +1,6 @@
 from datetime import datetime
 from typing import List, Optional
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 from core.database import (
     ensure_meeting_record,
@@ -15,6 +15,20 @@ router = APIRouter(
     prefix="/api/calendar",
     tags=["Calendar"]
 )
+
+
+def normalize_event_category(category: Optional[str]) -> str:
+    normalized = (category or "meetings").strip().lower()
+    aliases = {
+        "meeting": "meetings",
+        "meetings": "meetings",
+        "personal": "personal",
+        "reminder": "reminders",
+        "reminders": "reminders",
+        "remainder": "reminders",
+        "remainders": "reminders",
+    }
+    return aliases.get(normalized, "meetings")
 
 class CalendarEvent(BaseModel):
     id: Optional[str] = None
@@ -33,14 +47,53 @@ class CreateEventResponse(BaseModel):
     message: str
 
 @router.get("/events", response_model=List[CalendarEvent])
-async def get_events():
+async def get_events(
+    user_id: Optional[str] = Query(default=None),
+    user_email: Optional[str] = Query(default=None),
+):
     conn = get_db_connection()
     if not conn:
         raise HTTPException(status_code=500, detail="Database connection is unavailable")
 
     try:
         cursor = get_dict_cursor(conn)
-        cursor.execute("SELECT * FROM calendar_events ORDER BY start_time ASC")
+        normalized_user_id = normalize_uuid_or_none(user_id)
+        if user_id and not normalized_user_id:
+            raise HTTPException(status_code=400, detail="Invalid user ID")
+
+        normalized_email = (user_email or "").strip().lower() or None
+
+        if normalized_email:
+            cursor.execute(
+                """
+                SELECT calendar_events.*, users.email AS user_email
+                FROM calendar_events
+                LEFT JOIN users ON users.id = calendar_events.user_id
+                WHERE LOWER(COALESCE(users.email, '')) = %s
+                ORDER BY calendar_events.start_time ASC
+                """,
+                (normalized_email,),
+            )
+        elif normalized_user_id:
+            cursor.execute(
+                """
+                SELECT calendar_events.*, users.email AS user_email
+                FROM calendar_events
+                LEFT JOIN users ON users.id = calendar_events.user_id
+                WHERE calendar_events.user_id = %s
+                ORDER BY calendar_events.start_time ASC
+                """,
+                (normalized_user_id,),
+            )
+        else:
+            cursor.execute(
+                """
+                SELECT calendar_events.*, users.email AS user_email
+                FROM calendar_events
+                LEFT JOIN users ON users.id = calendar_events.user_id
+                ORDER BY calendar_events.start_time ASC
+                """
+            )
         rows = cursor.fetchall()
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to fetch events: {str(e)}")
@@ -51,11 +104,12 @@ async def get_events():
         CalendarEvent(
             id=row["id"],
             user_id=row["user_id"],
+            user_email=row.get("user_email"),
             title=row["title"],
             description=row["description"],
             start_time=row["start_time"],
             end_time=row["end_time"],
-            category=row["category"],
+            category=normalize_event_category(row["category"]),
             room_id=row["room_id"]
         ) for row in rows
     ]
@@ -73,6 +127,7 @@ async def create_event(event: CalendarEvent):
             name=event.user_name or "Calendar User",
             email=event.user_email,
         )
+        category = normalize_event_category(event.category)
         room_id = normalize_uuid_or_none(event.room_id)
         if room_id:
             ensure_meeting_record(room_id, host_user_id=user_id, title=event.title)
@@ -83,10 +138,10 @@ async def create_event(event: CalendarEvent):
         cursor = get_dict_cursor(conn)
         cursor.execute(
             """
-            INSERT INTO calendar_events (id, user_id, title, description, start_time, end_time, category, room_id)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+            INSERT INTO calendar_events (id, user_id, title, description, start_time, end_time, category, room_id, reminder_offset_minutes, reminder_sent_at)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, NULL)
             """,
-            (event_id, user_id, event.title, event.description, event.start_time, event.end_time, event.category, room_id)
+            (event_id, user_id, event.title, event.description, event.start_time, event.end_time, category, room_id, 30)
         )
         conn.commit()
     except Exception as e:
@@ -135,12 +190,25 @@ async def update_event(id: str, event: CalendarEvent):
             name=event.user_name or "Calendar User",
             email=event.user_email,
         )
+        category = normalize_event_category(event.category)
         room_id = normalize_uuid_or_none(event.room_id)
         if room_id:
             ensure_meeting_record(room_id, host_user_id=event_user_id, title=event.title)
         cursor.execute(
-            "UPDATE calendar_events SET user_id = %s, title = %s, description = %s, start_time = %s, end_time = %s, category = %s, room_id = %s WHERE id = %s",
-            (event_user_id, event.title, event.description, event.start_time, event.end_time, event.category, room_id, id)
+            """
+            UPDATE calendar_events
+            SET user_id = %s,
+                title = %s,
+                description = %s,
+                start_time = %s,
+                end_time = %s,
+                category = %s,
+                room_id = %s,
+                reminder_offset_minutes = 30,
+                reminder_sent_at = NULL
+            WHERE id = %s
+            """,
+            (event_user_id, event.title, event.description, event.start_time, event.end_time, category, room_id, id)
         )
         conn.commit()
         if cursor.rowcount == 0:
