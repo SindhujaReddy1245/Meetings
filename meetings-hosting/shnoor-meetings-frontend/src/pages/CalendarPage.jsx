@@ -9,6 +9,13 @@ import EventModal from '../components/EventModal';
 import { buildApiUrl } from '../utils/api';
 import { getCurrentUser } from '../utils/currentUser';
 
+function normalizeEventCategory(category) {
+  const normalized = `${category || 'meetings'}`.trim().toLowerCase();
+  if (normalized === 'personal') return 'personal';
+  if (['reminder', 'reminders', 'remainder', 'remainders'].includes(normalized)) return 'reminders';
+  return 'meetings';
+}
+
 export default function CalendarPage() {
   const currentUser = getCurrentUser();
   const [currentDate, setCurrentDate] = useState(new Date());
@@ -25,10 +32,15 @@ export default function CalendarPage() {
 
   const fetchEvents = async () => {
     try {
-      const response = await fetch(buildApiUrl('/api/calendar/events'));
+      const userId = currentUser?.meetingUserId;
+      const query = userId ? `?user_id=${encodeURIComponent(userId)}` : '';
+      const response = await fetch(buildApiUrl(`/api/calendar/events${query}`));
       if (response.ok) {
         const data = await response.json();
-        setEvents(data);
+        setEvents(data.map((event) => ({
+          ...event,
+          category: normalizeEventCategory(event.category),
+        })));
       }
     } catch (err) {
       console.error('Failed to fetch events:', err);
@@ -72,10 +84,11 @@ export default function CalendarPage() {
 
     const payload = {
       ...eventData,
+      category: normalizeEventCategory(eventData.category),
       user_id: currentUser?.meetingUserId || null,
       user_email: currentUser?.email || null,
       user_name: currentUser?.name || 'Guest',
-      room_id: eventData.category === 'meetings'
+      room_id: normalizeEventCategory(eventData.category) === 'meetings'
         ? (eventData.room_id || eventData.id || crypto.randomUUID())
         : null,
     };
@@ -97,12 +110,12 @@ export default function CalendarPage() {
   };
 
   const filteredEvents = useMemo(() => (
-    events.filter((event) => activeCategories.includes(event.category || 'meetings'))
+    events.filter((event) => activeCategories.includes(normalizeEventCategory(event.category)))
   ), [activeCategories, events]);
 
   const upcomingReminders = useMemo(() => (
     events
-      .filter((event) => (event.category || 'meetings') === 'reminders' && isAfter(new Date(event.start_time), new Date()))
+      .filter((event) => normalizeEventCategory(event.category) === 'reminders' && isAfter(new Date(event.start_time), new Date()))
       .sort((a, b) => new Date(a.start_time) - new Date(b.start_time))
   ), [events]);
 

@@ -3,6 +3,17 @@ import { X, Clock, AlignLeft, Video, Calendar } from 'lucide-react';
 import { format, addHours, startOfToday, isBefore } from 'date-fns';
 import { motion, AnimatePresence } from 'framer-motion';
 
+function normalizeEventCategory(category) {
+  const normalized = `${category || 'meetings'}`.trim().toLowerCase();
+  if (normalized === 'personal') {
+    return 'personal';
+  }
+  if (['reminder', 'reminders', 'remainder', 'remainders'].includes(normalized)) {
+    return 'reminders';
+  }
+  return 'meetings';
+}
+
 function toLocalDateTimeInputValue(value) {
   if (!value) {
     return '';
@@ -22,7 +33,7 @@ export default function EventModal({ isOpen, onClose, selectedDate, onSave, even
   const [description, setDescription] = useState(event?.description || '');
   const [startTime, setStartTime] = useState('');
   const [endTime, setEndTime] = useState('');
-  const [category, setCategory] = useState(event?.category || 'meetings');
+  const [category, setCategory] = useState(normalizeEventCategory(event?.category));
   const [validationMessage, setValidationMessage] = useState('');
 
   useEffect(() => {
@@ -32,12 +43,12 @@ export default function EventModal({ isOpen, onClose, selectedDate, onSave, even
         setDescription(event.description);
         setStartTime(toLocalDateTimeInputValue(event.start_time));
         setEndTime(toLocalDateTimeInputValue(event.end_time));
-        setCategory(event.category || 'meetings');
+        setCategory(normalizeEventCategory(event.category));
         setValidationMessage('');
       } else {
         setTitle('');
         setDescription('');
-        const start = selectedDate || new Date();
+        const start = new Date(selectedDate || new Date());
         start.setHours(new Date().getHours() + 1, 0, 0, 0);
         const end = addHours(start, 1);
         setStartTime(format(start, "yyyy-MM-dd'T'HH:mm"));
@@ -48,9 +59,7 @@ export default function EventModal({ isOpen, onClose, selectedDate, onSave, even
     }
   }, [isOpen, event, selectedDate]);
 
-  const handleSubmit = (e) => {
-    e.preventDefault();
-
+  const submitEvent = (nextCategory) => {
     const startDate = new Date(startTime);
     const endDate = new Date(endTime);
 
@@ -65,15 +74,21 @@ export default function EventModal({ isOpen, onClose, selectedDate, onSave, even
     }
 
     setValidationMessage('');
+    const normalizedCategory = normalizeEventCategory(nextCategory);
     onSave({
       id: event?.id || crypto.randomUUID(),
       title: title || '(No title)',
       description,
-      start_time: new Date(startTime).toISOString(),
-      end_time: new Date(endTime).toISOString(),
-      category,
-      room_id: category === 'meetings' ? (event?.room_id || crypto.randomUUID()) : null,
+      start_time: startDate.toISOString(),
+      end_time: endDate.toISOString(),
+      category: normalizedCategory,
+      room_id: normalizedCategory === 'meetings' ? (event?.room_id || crypto.randomUUID()) : null,
     });
+  };
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    submitEvent(category);
   };
 
   return (
@@ -140,6 +155,10 @@ export default function EventModal({ isOpen, onClose, selectedDate, onSave, even
                   <div><Video size={20} className="text-gray-400" /></div>
                   <button 
                     type="button"
+                    onClick={() => {
+                      setCategory('meetings');
+                      submitEvent('meetings');
+                    }}
                     className="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-3 px-6 rounded-xl font-bold shadow-lg shadow-blue-100 transition-all flex items-center justify-center gap-3 transform active:scale-95"
                   >
                     Add Shnoor Meeting
