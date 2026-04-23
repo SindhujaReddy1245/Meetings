@@ -1,6 +1,7 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Video, Keyboard, Plus, Link, Calendar, ChevronDown, ChevronLeft, ChevronRight, X } from 'lucide-react';
+import { format, formatDistanceToNowStrict, isAfter } from 'date-fns';
 import MeetingHeader from '../components/MeetingHeader';
 import MeetingSidebar from '../components/MeetingSidebar';
 import InviteModal from '../components/InviteModal';
@@ -20,6 +21,7 @@ export default function LandingPage() {
   const [showJoinModal, setShowJoinModal] = useState(false);
   const [isChatbotOpen, setIsChatbotOpen] = useState(false);
   const [laterRoomId, setLaterRoomId] = useState('');
+  const [scheduledMeetings, setScheduledMeetings] = useState([]);
   const currentUser = getCurrentUser();
   const dropdownRef = useRef(null);
   const navigate = useNavigate();
@@ -48,6 +50,63 @@ export default function LandingPage() {
       setIsChatbotOpen(true);
     }
   }, [location.search]);
+
+  useEffect(() => {
+    const userEmail = currentUser?.email?.trim().toLowerCase();
+    const userId = currentUser?.meetingUserId;
+
+    if (!userEmail && !userId) {
+      setScheduledMeetings([]);
+      return;
+    }
+
+    let isCancelled = false;
+
+    const loadScheduledMeetings = async () => {
+      try {
+        const params = new URLSearchParams();
+        if (userEmail) {
+          params.set('user_email', userEmail);
+        } else if (userId) {
+          params.set('user_id', userId);
+        }
+
+        const response = await fetch(buildApiUrl(`/api/calendar/events?${params.toString()}`));
+        if (!response.ok) {
+          throw new Error(await response.text());
+        }
+
+        const data = await response.json();
+        if (!isCancelled) {
+          setScheduledMeetings(Array.isArray(data) ? data : []);
+        }
+      } catch (error) {
+        if (!isCancelled) {
+          console.error('Failed to load scheduled meetings for landing page:', error);
+          setScheduledMeetings([]);
+        }
+      }
+    };
+
+    loadScheduledMeetings();
+    window.addEventListener('focus', loadScheduledMeetings);
+
+    return () => {
+      isCancelled = true;
+      window.removeEventListener('focus', loadScheduledMeetings);
+    };
+  }, [currentUser?.email, currentUser?.meetingUserId]);
+
+  const upcomingScheduledMeetings = useMemo(() => (
+    scheduledMeetings
+      .filter((event) => {
+        const category = `${event?.category || 'meetings'}`.trim().toLowerCase();
+        return category === 'meetings' || category === 'meeting';
+      })
+      .filter((event) => event?.start_time && isAfter(new Date(event.start_time), new Date()))
+      .sort((a, b) => new Date(a.start_time) - new Date(b.start_time))
+      .slice(0, 4)
+  ), [scheduledMeetings]);
 
   const extractRoomId = (value) => {
     const trimmedValue = value.trim();
@@ -225,6 +284,48 @@ export default function LandingPage() {
               <p className="text-gray-500 text-sm">
                 <a href="#" className="text-blue-600 hover:underline">Learn more</a> about Shnoor Meetings
               </p>
+            </div>
+
+            <div className="mt-8 rounded-2xl border border-blue-100 bg-blue-50/60 p-5">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <h2 className="text-lg font-medium text-gray-800">Scheduled Meetings</h2>
+                  <p className="text-sm text-gray-500">Your upcoming meetings from Shnoor Calendar</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => navigate('/calendar')}
+                  className="text-sm font-medium text-blue-600 hover:underline"
+                >
+                  Open calendar
+                </button>
+              </div>
+
+              <div className="mt-4 space-y-3">
+                {upcomingScheduledMeetings.length === 0 ? (
+                  <div className="rounded-xl border border-dashed border-blue-200 bg-white/80 px-4 py-4 text-sm text-gray-500">
+                    No scheduled meetings are showing yet.
+                  </div>
+                ) : (
+                  upcomingScheduledMeetings.map((meeting) => (
+                    <div key={meeting.id} className="rounded-xl bg-white px-4 py-4 shadow-sm border border-blue-100">
+                      <div className="flex items-start justify-between gap-4">
+                        <div>
+                          <div className="text-sm font-semibold text-gray-800">
+                            {meeting.title || 'Untitled meeting'}
+                          </div>
+                          <div className="mt-1 text-xs text-gray-500">
+                            {format(new Date(meeting.start_time), 'MMM d, yyyy - h:mm a')}
+                          </div>
+                        </div>
+                        <div className="text-xs font-medium text-blue-700 whitespace-nowrap">
+                          {formatDistanceToNowStrict(new Date(meeting.start_time))} left
+                        </div>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
             </div>
           </div>
 
