@@ -1,4 +1,5 @@
 import os
+import threading
 from datetime import datetime
 from typing import List, Optional
 from fastapi import APIRouter, HTTPException, Query
@@ -11,6 +12,7 @@ from core.database import (
     normalize_uuid_or_none,
     release_db_connection,
 )
+from core.reminders import process_pending_calendar_reminders
 
 router = APIRouter(
     prefix="/api/calendar",
@@ -48,6 +50,14 @@ class CalendarEvent(BaseModel):
 class CreateEventResponse(BaseModel):
     id: str
     message: str
+
+
+def trigger_calendar_reminder_check():
+    threading.Thread(
+        target=process_pending_calendar_reminders,
+        name="calendar-reminder-kick",
+        daemon=True,
+    ).start()
 
 @router.get("/events", response_model=List[CalendarEvent])
 async def get_events(
@@ -159,6 +169,7 @@ async def create_event(event: CalendarEvent):
         if "conn" in locals() and conn:
             release_db_connection(conn)
 
+    trigger_calendar_reminder_check()
     return {"id": event_id, "message": "Event created successfully"}
 
 @router.delete("/events/{id}")
@@ -225,4 +236,5 @@ async def update_event(id: str, event: CalendarEvent):
     finally:
         release_db_connection(conn)
 
+    trigger_calendar_reminder_check()
     return {"message": "Event updated successfully"}

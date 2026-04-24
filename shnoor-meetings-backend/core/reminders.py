@@ -10,6 +10,7 @@ from core.database import get_db_connection, get_dict_cursor, release_db_connect
 
 logger = logging.getLogger(__name__)
 DEFAULT_REMINDER_OFFSET_MINUTES = int((os.getenv("CALENDAR_REMINDER_OFFSET_MINUTES") or "5").strip() or "5")
+REMINDER_POLL_INTERVAL_SECONDS = int((os.getenv("CALENDAR_REMINDER_POLL_INTERVAL_SECONDS") or "15").strip() or "15")
 
 _reminder_thread: Optional[threading.Thread] = None
 _stop_event = threading.Event()
@@ -141,7 +142,7 @@ def process_pending_calendar_reminders():
 
 
 def _reminder_loop():
-    while not _stop_event.wait(60):
+    while not _stop_event.wait(REMINDER_POLL_INTERVAL_SECONDS):
         process_pending_calendar_reminders()
 
 
