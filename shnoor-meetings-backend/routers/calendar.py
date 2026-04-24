@@ -79,10 +79,10 @@ async def get_events(
         if normalized_email:
             cursor.execute(
                 """
-                SELECT calendar_events.*, users.email AS user_email
+                SELECT calendar_events.*, COALESCE(calendar_events.recipient_email, users.email) AS user_email
                 FROM calendar_events
                 LEFT JOIN users ON users.id = calendar_events.user_id
-                WHERE LOWER(COALESCE(users.email, '')) = %s
+                WHERE LOWER(COALESCE(calendar_events.recipient_email, users.email, '')) = %s
                 ORDER BY calendar_events.start_time ASC
                 """,
                 (normalized_email,),
@@ -90,7 +90,7 @@ async def get_events(
         elif normalized_user_id:
             cursor.execute(
                 """
-                SELECT calendar_events.*, users.email AS user_email
+                SELECT calendar_events.*, COALESCE(calendar_events.recipient_email, users.email) AS user_email
                 FROM calendar_events
                 LEFT JOIN users ON users.id = calendar_events.user_id
                 WHERE calendar_events.user_id = %s
@@ -101,7 +101,7 @@ async def get_events(
         else:
             cursor.execute(
                 """
-                SELECT calendar_events.*, users.email AS user_email
+                SELECT calendar_events.*, COALESCE(calendar_events.recipient_email, users.email) AS user_email
                 FROM calendar_events
                 LEFT JOIN users ON users.id = calendar_events.user_id
                 ORDER BY calendar_events.start_time ASC
@@ -151,10 +151,21 @@ async def create_event(event: CalendarEvent):
         cursor = get_dict_cursor(conn)
         cursor.execute(
             """
-            INSERT INTO calendar_events (id, user_id, title, description, start_time, end_time, category, room_id, reminder_offset_minutes, reminder_sent_at)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, NULL)
+            INSERT INTO calendar_events (id, user_id, recipient_email, title, description, start_time, end_time, category, room_id, reminder_offset_minutes, reminder_sent_at)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NULL)
             """,
-            (event_id, user_id, event.title, event.description, event.start_time, event.end_time, category, room_id, DEFAULT_REMINDER_OFFSET_MINUTES)
+            (
+                event_id,
+                user_id,
+                (event.user_email or "").strip().lower() or None,
+                event.title,
+                event.description,
+                event.start_time,
+                event.end_time,
+                category,
+                room_id,
+                DEFAULT_REMINDER_OFFSET_MINUTES,
+            )
         )
         conn.commit()
     except Exception as e:
@@ -212,6 +223,7 @@ async def update_event(id: str, event: CalendarEvent):
             """
             UPDATE calendar_events
             SET user_id = %s,
+                recipient_email = %s,
                 title = %s,
                 description = %s,
                 start_time = %s,
@@ -222,7 +234,18 @@ async def update_event(id: str, event: CalendarEvent):
                 reminder_sent_at = NULL
             WHERE id = %s
             """,
-            (event_user_id, event.title, event.description, event.start_time, event.end_time, category, room_id, DEFAULT_REMINDER_OFFSET_MINUTES, id)
+            (
+                event_user_id,
+                (event.user_email or "").strip().lower() or None,
+                event.title,
+                event.description,
+                event.start_time,
+                event.end_time,
+                category,
+                room_id,
+                DEFAULT_REMINDER_OFFSET_MINUTES,
+                id,
+            )
         )
         conn.commit()
         if cursor.rowcount == 0:

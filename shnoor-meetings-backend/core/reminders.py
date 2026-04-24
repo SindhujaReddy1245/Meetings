@@ -133,11 +133,11 @@ def process_pending_calendar_reminders():
                 calendar_events.category,
                 calendar_events.start_time,
                 calendar_events.reminder_offset_minutes,
-                users.email AS user_email
+                COALESCE(calendar_events.recipient_email, users.email) AS user_email
             FROM calendar_events
             LEFT JOIN users ON users.id = calendar_events.user_id
             WHERE calendar_events.reminder_sent_at IS NULL
-              AND users.email IS NOT NULL
+              AND COALESCE(calendar_events.recipient_email, users.email) IS NOT NULL
               AND calendar_events.start_time > NOW()
               AND calendar_events.start_time <= (NOW() + make_interval(mins => calendar_events.reminder_offset_minutes))
               AND LOWER(COALESCE(calendar_events.category, 'meetings')) IN ('meetings', 'meeting', 'personal', 'reminders', 'reminder', 'remainder', 'remainders')

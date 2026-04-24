@@ -411,6 +411,12 @@ def _ensure_tables():
             )
             cursor.execute(
                 """
+                ALTER TABLE calendar_events
+                ADD COLUMN IF NOT EXISTS recipient_email TEXT NULL
+                """
+            )
+            cursor.execute(
+                """
                 CREATE INDEX IF NOT EXISTS idx_calendar_events_user_start_time
                 ON calendar_events (user_id, start_time)
                 """
@@ -434,6 +440,19 @@ def _ensure_tables():
                     DEFAULT_REMINDER_OFFSET_MINUTES,
                     DEFAULT_REMINDER_OFFSET_MINUTES,
                 )
+            )
+            cursor.execute(
+                """
+                UPDATE calendar_events
+                SET recipient_email = LOWER(users.email)
+                FROM users
+                WHERE users.id = calendar_events.user_id
+                  AND users.email IS NOT NULL
+                  AND (
+                    calendar_events.recipient_email IS NULL
+                    OR BTRIM(calendar_events.recipient_email) = ''
+                  )
+                """
             )
         conn.commit()
     except Exception:
