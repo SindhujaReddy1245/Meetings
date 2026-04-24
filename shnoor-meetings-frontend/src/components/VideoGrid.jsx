@@ -301,6 +301,10 @@ export default function VideoGrid({
   }), [isAudioEnabled, isSharingScreen, isVideoEnabled, localHandRaised, localParticipantName, localParticipantPicture, localStream]);
 
   const speakingParticipantIds = useSpeakingParticipants([localTile, ...remoteTiles]);
+  const prioritizedSpeakerTile = useMemo(() => {
+    const allTiles = [localTile, ...remoteTiles];
+    return allTiles.find((tile) => speakingParticipantIds.has(tile.id)) || null;
+  }, [localTile, remoteTiles, speakingParticipantIds]);
 
   const featuredTile = useMemo(() => {
     if (selectedTile) {
@@ -315,8 +319,17 @@ export default function VideoGrid({
       return localTile;
     }
 
-    return remoteTiles.find((tile) => tile.isSharingScreen) || null;
-  }, [isSharingScreen, localTile, remoteTiles, selectedTile]);
+    const remotePresenter = remoteTiles.find((tile) => tile.isSharingScreen);
+    if (remotePresenter) {
+      return remotePresenter;
+    }
+
+    if (prioritizedSpeakerTile) {
+      return prioritizedSpeakerTile;
+    }
+
+    return null;
+  }, [isSharingScreen, localTile, prioritizedSpeakerTile, remoteTiles, selectedTile]);
 
   const thumbnailTiles = useMemo(() => {
     const tiles = [localTile, ...remoteTiles];
@@ -324,12 +337,28 @@ export default function VideoGrid({
   }, [featuredTile?.id, localTile, remoteTiles]);
 
   const standardGridTiles = useMemo(() => {
-    const tiles = [localTile, ...remoteTiles].filter((tile) => tile.stream);
+    const tiles = [localTile, ...remoteTiles]
+      .filter((tile) => tile.stream)
+      .sort((left, right) => {
+        const leftSpeaking = speakingParticipantIds.has(left.id) ? 1 : 0;
+        const rightSpeaking = speakingParticipantIds.has(right.id) ? 1 : 0;
+        return rightSpeaking - leftSpeaking;
+      });
     if (tiles.length <= 1) return 'grid-cols-1 max-w-4xl';
     if (tiles.length === 2) return 'grid-cols-1 md:grid-cols-2 max-w-6xl';
     if (tiles.length <= 4) return 'grid-cols-2 max-w-6xl';
     return 'grid-cols-2 lg:grid-cols-3 max-w-7xl';
-  }, [localTile, remoteTiles]);
+  }, [localTile, remoteTiles, speakingParticipantIds]);
+
+  const orderedStandardTiles = useMemo(() => (
+    [localTile, ...remoteTiles]
+      .filter((tile) => tile.stream)
+      .sort((left, right) => {
+        const leftSpeaking = speakingParticipantIds.has(left.id) ? 1 : 0;
+        const rightSpeaking = speakingParticipantIds.has(right.id) ? 1 : 0;
+        return rightSpeaking - leftSpeaking;
+      })
+  ), [localTile, remoteTiles, speakingParticipantIds]);
 
   if (featuredTile) {
     return (
@@ -432,18 +461,7 @@ export default function VideoGrid({
         <RemoteAudio key={`audio-${tile.id}`} stream={tile.stream} />
       ))}
       <div className={`grid gap-6 w-full ${standardGridTiles} mx-auto items-center justify-items-center`}>
-        <VideoPlayer
-          stream={localStream}
-          label={localParticipantName}
-          picture={localParticipantPicture}
-          isLocal
-          isHandRaised={localHandRaised}
-          isSpeaking={speakingParticipantIds.has('local')}
-          isAudioEnabled={isAudioEnabled}
-          isVideoEnabled={isVideoEnabled}
-        />
-
-        {remoteTiles.map((tile) => (
+        {orderedStandardTiles.map((tile) => (
           <button
             key={tile.id}
             onClick={() => setSelectedTile(tile.id)}
@@ -453,6 +471,7 @@ export default function VideoGrid({
               stream={tile.stream}
               label={tile.label}
               picture={tile.picture}
+              isLocal={tile.isLocal}
               isHandRaised={tile.isHandRaised}
               isSpeaking={speakingParticipantIds.has(tile.id)}
               isAudioEnabled={tile.isAudioEnabled}
