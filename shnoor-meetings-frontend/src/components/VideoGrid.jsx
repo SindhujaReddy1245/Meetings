@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Maximize2, MicOff, Minimize2, X } from 'lucide-react';
+import { getCurrentUser } from '../utils/currentUser';
 
 function getDisplayInitial(name = 'P') {
   return `${name}`.trim().charAt(0).toUpperCase() || 'P';
@@ -148,6 +149,9 @@ function VideoPlayer({
   compact = false,
 }) {
   const videoRef = useRef(null);
+  const loggedInUser = getCurrentUser();
+  const resolvedPicture = isLocal ? (picture || loggedInUser?.picture || null) : picture;
+  const resolvedLabel = isLocal ? (label || loggedInUser?.name || loggedInUser?.email || 'You') : label;
   const shouldShowVideo = Boolean(isVideoEnabled) && hasUsableVideo(stream);
 
   useEffect(() => {
@@ -181,10 +185,13 @@ function VideoPlayer({
       ) : (
         <div className="absolute inset-0 flex items-center justify-center bg-[radial-gradient(circle_at_top,#1f5f8b_0%,#174d76_40%,#103754_100%)]">
           <SpeakerBackdrop active={isSpeaking} featured={featured} />
-          <div style={isSpeaking ? { animation: 'speakerAvatar 1.25s ease-in-out infinite' } : undefined}>
+          <div
+            className="relative z-10"
+            style={isSpeaking ? { animation: 'speakerAvatar 1.25s ease-in-out infinite' } : undefined}
+          >
             <AvatarBadge
-              name={label}
-              picture={picture}
+              name={resolvedLabel}
+              picture={resolvedPicture}
               sizeClass={featured ? 'h-36 w-36 sm:h-44 sm:w-44' : compact ? 'h-16 w-16' : 'h-24 w-24'}
               textClass={featured ? 'text-6xl' : compact ? 'text-2xl' : 'text-4xl'}
             />
@@ -208,7 +215,7 @@ function VideoPlayer({
         <div className={`bg-black/60 backdrop-blur-md rounded-lg text-white font-semibold tracking-wide border border-white/10 shadow-lg ${
           compact ? 'px-3 py-1 text-xs' : 'px-4 py-1.5 text-sm'
         }`}>
-          {label}
+          {resolvedLabel}
         </div>
       </div>
 
