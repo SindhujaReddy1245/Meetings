@@ -19,7 +19,7 @@ function AvatarBadge({ name, picture, sizeClass = 'h-24 w-24', textClass = 'text
   const shouldShowImage = Boolean(picture && !imageFailed);
 
   return (
-    <div className={`${sizeClass} overflow-hidden rounded-full border border-white/30 bg-sky-700/90 shadow-xl`}>
+    <div className={`${sizeClass} overflow-hidden rounded-full border-2 border-white/60 bg-sky-700/90 shadow-xl`}>
       {shouldShowImage ? (
         <img
           src={picture}
@@ -114,7 +114,7 @@ function useSpeakingParticipants(tiles) {
           }
 
           const rms = Math.sqrt(total / sampleBuffer.length);
-          return rms > 0.045;
+          return rms > 0.025;
         })
         .map(({ id }) => id)
         .sort();
@@ -203,13 +203,13 @@ function VideoPlayer({
           ref={videoRef}
           autoPlay
           playsInline
-          muted={isLocal}
+          muted
           onLoadedData={() => setHasRenderedVideoFrame(true)}
           onCanPlay={() => setHasRenderedVideoFrame(true)}
           className={`w-full h-full ${featured ? 'object-contain bg-black' : 'object-cover'} ${isLocal ? 'transform -scale-x-100' : ''}`}
         />
       ) : (
-        <div className="absolute inset-0 flex items-center justify-center bg-[radial-gradient(circle_at_top,#1f5f8b_0%,#174d76_40%,#103754_100%)]">
+        <div className="absolute inset-0 flex items-center justify-center bg-[radial-gradient(circle_at_top,#31445f_0%,#1f2d44_45%,#142033_100%)]">
           <SpeakerBackdrop active={isSpeaking} featured={featured} />
           <div
             className="relative z-10"
@@ -225,14 +225,23 @@ function VideoPlayer({
         </div>
       )}
 
+      <div className="absolute top-4 left-4 z-10">
+        <AvatarBadge
+          name={resolvedLabel}
+          picture={resolvedPicture}
+          sizeClass={compact ? 'h-10 w-10' : 'h-12 w-12'}
+          textClass={compact ? 'text-base' : 'text-lg'}
+        />
+      </div>
+
       {!isAudioEnabled && (
-        <div className="absolute top-4 left-4 rounded-full bg-black/55 p-2 text-white shadow-lg">
+        <div className="absolute top-4 right-4 rounded-full bg-black/55 p-2 text-white shadow-lg z-10">
           <MicOff size={compact ? 14 : 16} />
         </div>
       )}
 
       {isHandRaised && (
-        <div className="absolute top-4 right-4 bg-yellow-500 text-white p-2 rounded-full shadow-lg border-2 border-yellow-400 z-10">
+        <div className="absolute top-20 right-4 bg-yellow-500 text-white p-2 rounded-full shadow-lg border-2 border-yellow-400 z-10">
           <span className="text-xs font-bold">RH</span>
         </div>
       )}
