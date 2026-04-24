@@ -10,6 +10,10 @@ const backendAuthBaseUrl = (
   'https://meetings-vr93.onrender.com'
 ).replace(/\/$/, '');
 
+function isAllowedShnoorEmail(email) {
+  return email.trim().toLowerCase().endsWith('@shnoor.com');
+}
+
 function normalizeEventCategory(category) {
   const normalized = `${category || 'meetings'}`.trim().toLowerCase();
   if (normalized === 'personal') return 'personal';
@@ -67,6 +71,13 @@ export default function LoginPage() {
       try {
         const decodedPayload = atob(encodedUser.replace(/-/g, '+').replace(/_/g, '/'));
         const user = JSON.parse(decodedPayload);
+
+        if (!isAllowedShnoorEmail(user?.email || '')) {
+          alert('Only @shnoor.com email addresses are allowed.');
+          window.history.replaceState({}, document.title, '/login');
+          return;
+        }
+
         await persistUser(user);
         window.history.replaceState({}, document.title, '/login');
         navigate('/', { replace: true });
@@ -83,7 +94,7 @@ export default function LoginPage() {
   useEffect(() => {
     const normalizedEmail = email.trim().toLowerCase();
 
-    if (!normalizedEmail || !normalizedEmail.includes('@')) {
+    if (!normalizedEmail || !isAllowedShnoorEmail(normalizedEmail)) {
       setCalendarPreview([]);
       setIsLoadingPreview(false);
       return;
@@ -149,17 +160,23 @@ export default function LoginPage() {
 
   const handleLogin = async (event) => {
     event.preventDefault();
+    const normalizedEmail = email.trim().toLowerCase();
 
-    if (!email) {
-      alert('Enter your Gmail');
+    if (!normalizedEmail) {
+      alert('Enter your @shnoor.com email');
+      return;
+    }
+
+    if (!isAllowedShnoorEmail(normalizedEmail)) {
+      alert('Only @shnoor.com email addresses are allowed.');
       return;
     }
 
     const userData = {
-      id: email,
-      name: email,
-      email,
-      picture: `https://ui-avatars.com/api/?name=${encodeURIComponent(email)}`,
+      id: normalizedEmail,
+      name: normalizedEmail,
+      email: normalizedEmail,
+      picture: `https://ui-avatars.com/api/?name=${encodeURIComponent(normalizedEmail)}`,
     };
 
     await persistUser(userData);
@@ -178,7 +195,7 @@ export default function LoginPage() {
         <form onSubmit={handleLogin} className="flex flex-col gap-4">
           <input
             type="email"
-            placeholder="Enter your Gmail"
+            placeholder="Enter your @shnoor.com email"
             value={email}
             required
             onChange={(event) => setEmail(event.target.value)}
@@ -221,7 +238,7 @@ export default function LoginPage() {
         <div className="mt-6 rounded-2xl border border-indigo-100 bg-white/80 p-4 shadow-sm">
           <h2 className="text-sm font-semibold text-gray-800">Your Calendar Patch</h2>
           <p className="mt-1 text-xs text-gray-500">
-            Enter your email to see your saved meetings, personal items, and reminders.
+            Enter your @shnoor.com email to see your saved meetings, personal items, and reminders.
           </p>
 
           <div className="mt-4 space-y-3">
