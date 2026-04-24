@@ -8,9 +8,7 @@ function getDisplayInitial(name = 'P') {
 
 function hasUsableVideo(stream) {
   return Boolean(
-    stream?.getVideoTracks?.().some((track) => (
-      track.readyState === 'live' && track.muted !== true
-    ))
+    stream?.getVideoTracks?.().some((track) => track.readyState === 'live')
   );
 }
 
