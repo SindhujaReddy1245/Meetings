@@ -173,7 +173,7 @@ export default function LoginPage() {
       id: normalizedEmail,
       name: normalizedEmail,
       email: normalizedEmail,
-      picture: `https://ui-avatars.com/api/?name=${encodeURIComponent(normalizedEmail)}`,
+      picture: null,
     };
 
     await persistUser(userData);

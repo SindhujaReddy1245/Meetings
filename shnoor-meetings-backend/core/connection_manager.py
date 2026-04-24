@@ -124,13 +124,14 @@ class ConnectionManager:
     def get_connection_user(self, room_id: str, websocket: WebSocket):
         return self.connection_users.get(room_id, {}).get(websocket)
 
-    def add_waiting_request(self, room_id: str, client_id: str, name: str):
+    def add_waiting_request(self, room_id: str, client_id: str, name: str, picture: str | None = None):
         if room_id not in self.waiting_requests:
             self.waiting_requests[room_id] = {}
 
         self.waiting_requests[room_id][client_id] = {
             "id": client_id,
             "name": name,
+            "picture": picture,
         }
 
     def remove_waiting_request(self, room_id: str, client_id: str):
@@ -174,9 +175,12 @@ class ConnectionManager:
             participants.append({
                 "id": metadata.get("client_id"),
                 "name": metadata.get("name") or "Participant",
+                "picture": metadata.get("picture"),
                 "role": metadata.get("role") or "participant",
                 "isHandRaised": bool(metadata.get("isHandRaised")),
                 "isSharingScreen": bool(metadata.get("isSharingScreen")),
+                "isAudioEnabled": bool(metadata.get("isAudioEnabled")),
+                "isVideoEnabled": bool(metadata.get("isVideoEnabled")),
             })
 
         return participants
