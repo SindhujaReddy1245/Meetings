@@ -202,6 +202,24 @@ async def create_event(event: CalendarEvent):
         if "conn" in locals() and conn:
             release_db_connection(conn)
 
+    # Construct meeting link if room_id exists
+    meet_link = None
+    if room_id:
+        # You may want to adjust this URL to match your frontend deployment
+        meet_link = f"https://your-frontend-domain/join/{room_id}"
+
+    # Save the meeting link for the reminder system (not in DB, just for immediate reminder)
+    # Optionally, you could store this in the DB if you want it persistent
+    event_data = event.dict() if hasattr(event, 'dict') else dict(event)
+    if meet_link:
+        event_data["meet_link"] = meet_link
+
+    # Optionally, trigger a reminder immediately if the event is within the reminder window
+    try:
+        send_calendar_reminder_email(event_data)
+    except Exception:
+        pass  # Don't block event creation if email fails
+
     trigger_calendar_reminder_check()
     return {"id": event_id, "message": "Event created successfully"}
 

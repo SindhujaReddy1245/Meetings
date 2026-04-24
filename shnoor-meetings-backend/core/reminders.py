@@ -103,16 +103,20 @@ def _build_reminder_body(event: dict) -> str:
     event_category = ((event.get("category") or "meeting").rstrip("s")).capitalize()
     event_start = _format_event_start(event.get("start_time"))
     offset_minutes = event.get("reminder_offset_minutes") or DEFAULT_REMINDER_OFFSET_MINUTES
+    meet_link = event.get("meet_link") or event.get("meeting_link") or event.get("meeting_url")
 
-    return (
+    body = (
         f"Hello,\n\n"
         f"You have a {event_category.lower()} scheduled in {offset_minutes} minutes.\n\n"
         f"Title: {event_title}\n"
         f"Date and time: {event_start}\n"
-        f"Category: {event_category}\n\n"
-        f"Please be ready before it starts.\n\n"
-        f"Shnoor Meetings"
+        f"Category: {event_category}\n"
     )
+    if meet_link:
+        body += f"Meeting Link: {meet_link}\n"
+    body += ("\nPlease be ready before it starts.\n\n"
+             "Shnoor Meetings")
+    return body
 
 
 def send_calendar_reminder_email(event: dict):
