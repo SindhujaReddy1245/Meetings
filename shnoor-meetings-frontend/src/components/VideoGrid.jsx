@@ -71,7 +71,7 @@ function VideoPlayer({
       }).catch((error) => {
         console.warn('Video autoplay failed for stream', error);
       });
-    };
+    }
   }, [hasLiveVideoTrack, isVideoEnabled, stream]);
 
   return (
@@ -229,6 +229,7 @@ export default function VideoGrid({
     speakingIds: speakingParticipantIds,
     audioLevels,
   } = useActiveSpeaker([localTile, ...remoteTiles], getPeerConnection);
+
   const prioritizedSpeakerTile = useMemo(() => {
     const allTiles = [localTile, ...remoteTiles];
     return allTiles.find((tile) => tile.id === dominantSpeakerId) || null;
@@ -257,7 +258,7 @@ export default function VideoGrid({
     }
 
     return null;
-  }, [isSharingScreen, localTile, prioritizedSpeakerTile, remoteTiles, selectedTile]);
+  }, [isSharingScreen, localTile, prioritizedSpeakerTile, remoteTiles, selectedTile, speakingParticipantIds]);
 
   const thumbnailTiles = useMemo(() => {
     const tiles = [localTile, ...remoteTiles];
@@ -267,16 +268,16 @@ export default function VideoGrid({
   const standardGridTiles = useMemo(() => {
     const tiles = [localTile, ...remoteTiles]
       .filter((tile) => tile.stream)
-        .sort((left, right) => {
-          const leftLevel = audioLevels[left.id] || 0;
-          const rightLevel = audioLevels[right.id] || 0;
-          return rightLevel - leftLevel;
-        });
+      .sort((left, right) => {
+        const leftLevel = audioLevels[left.id] || 0;
+        const rightLevel = audioLevels[right.id] || 0;
+        return rightLevel - leftLevel;
+      });
     if (tiles.length <= 1) return 'grid-cols-1 max-w-4xl';
     if (tiles.length === 2) return 'grid-cols-1 md:grid-cols-2 max-w-6xl';
     if (tiles.length <= 4) return 'grid-cols-2 max-w-6xl';
     return 'grid-cols-2 lg:grid-cols-3 max-w-7xl';
-  }, [localTile, remoteTiles, speakingParticipantIds]);
+  }, [audioLevels, localTile, remoteTiles]);
 
   const orderedStandardTiles = useMemo(() => (
     [localTile, ...remoteTiles]
@@ -297,7 +298,7 @@ export default function VideoGrid({
         <div className="flex-1 min-h-0">
           <VideoPlayer
             stream={featuredTile.stream}
-            label={`${featuredTile.label} (Presenting)`}
+            label={featuredTile.isSharingScreen ? `${featuredTile.label} (Presenting)` : featuredTile.label}
             picture={featuredTile.picture}
             isHost={featuredTile.isHost}
             isLocal={featuredTile.isLocal}
@@ -375,10 +376,6 @@ export default function VideoGrid({
         @keyframes speakerPulse {
           0%, 100% { transform: scale(0.92); opacity: 0.35; }
           50% { transform: scale(1.08); opacity: 0.9; }
-        }
-        @keyframes speakerAvatar {
-          0%, 100% { transform: scale(0.98); }
-          50% { transform: scale(1.05); }
         }
         @keyframes speakerAvatarPulse {
           0%, 100% { transform: scale(1); }
