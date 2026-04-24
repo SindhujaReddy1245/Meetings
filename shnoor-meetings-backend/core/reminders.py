@@ -23,7 +23,10 @@ def _get_smtp_settings():
         "username": (os.getenv("SMTP_USERNAME") or "").strip(),
         "password": (os.getenv("SMTP_PASSWORD") or "").strip(),
         "from_email": (os.getenv("SMTP_FROM_EMAIL") or "").strip(),
+        "from_name": (os.getenv("SMTP_FROM_NAME") or "Shnoor Meetings").strip(),
         "use_tls": (os.getenv("SMTP_USE_TLS") or "true").strip().lower() != "false",
+        "use_ssl": (os.getenv("SMTP_USE_SSL") or "false").strip().lower() == "true",
+        "timeout_seconds": int((os.getenv("SMTP_TIMEOUT_SECONDS") or "30").strip() or "30"),
     }
 
 
@@ -36,6 +39,22 @@ def _smtp_is_configured():
         settings["password"],
         settings["from_email"],
     ])
+
+
+def _get_missing_smtp_keys():
+    settings = _get_smtp_settings()
+    missing_keys = []
+
+    if not settings["host"]:
+        missing_keys.append("SMTP_HOST")
+    if not settings["username"]:
+        missing_keys.append("SMTP_USERNAME")
+    if not settings["password"]:
+        missing_keys.append("SMTP_PASSWORD")
+    if not settings["from_email"]:
+        missing_keys.append("SMTP_FROM_EMAIL")
+
+    return missing_keys
 
 
 def _build_reminder_subject(event: dict) -> str:
@@ -77,20 +96,26 @@ def send_calendar_reminder_email(event: dict):
 
     message = EmailMessage()
     message["Subject"] = _build_reminder_subject(event)
-    message["From"] = settings["from_email"]
+    message["From"] = f"{settings['from_name']} <{settings['from_email']}>"
     message["To"] = recipient_email
     message.set_content(_build_reminder_body(event))
 
-    with smtplib.SMTP(settings["host"], settings["port"], timeout=30) as server:
-        if settings["use_tls"]:
+    smtp_client = smtplib.SMTP_SSL if settings["use_ssl"] else smtplib.SMTP
+    with smtp_client(settings["host"], settings["port"], timeout=settings["timeout_seconds"]) as server:
+        server.ehlo()
+        if settings["use_tls"] and not settings["use_ssl"]:
             server.starttls()
+            server.ehlo()
         server.login(settings["username"], settings["password"])
         server.send_message(message)
 
 
 def process_pending_calendar_reminders():
     if not _smtp_is_configured():
-        logger.info("Calendar reminders skipped because SMTP settings are incomplete.")
+        logger.warning(
+            "Calendar reminders skipped because SMTP settings are incomplete. Missing: %s",
+            ", ".join(_get_missing_smtp_keys()) or "unknown",
+        )
         return
 
     conn = get_db_connection()
@@ -153,6 +178,7 @@ def start_calendar_reminder_worker():
         return
 
     _stop_event.clear()
+    process_pending_calendar_reminders()
     _reminder_thread = threading.Thread(
         target=_reminder_loop,
         name="calendar-reminder-worker",
