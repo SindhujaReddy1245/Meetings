@@ -979,6 +979,8 @@ export function useWebRTC(roomId, options = {}) {
     addMessage({ sender: 'Me', text });
   }, [addMessage, sendSignalingMessage]);
 
+  const getPeerConnection = useCallback((peerId) => peerConnections.current[peerId] || null, []);
+
   return {
     localStream,
     remoteStreams,
@@ -1002,5 +1004,6 @@ export function useWebRTC(roomId, options = {}) {
     isAudioEnabled,
     isVideoEnabled,
     localClientId: clientId.current,
+    getPeerConnection,
   };
 }

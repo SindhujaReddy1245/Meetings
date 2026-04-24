@@ -5,29 +5,7 @@ import VideoGrid from '../components/VideoGrid';
 import MeetingControls from '../components/MeetingControls';
 import { Send, Users, Info, Video, Check, X, Copy, Link as LinkIcon } from 'lucide-react';
 import { getCurrentUser } from '../utils/currentUser';
-
-function ParticipantAvatar({ name, picture, className = 'w-8 h-8', textClass = 'text-xs' }) {
-  const initial = (name || 'P').charAt(0).toUpperCase();
-  const [imageFailed, setImageFailed] = useState(false);
-  const normalizedPicture = `${picture || ''}`.trim();
-  const shouldShowImage = Boolean(normalizedPicture && !imageFailed);
-
-  return (
-    <div className={`${className} rounded-full overflow-hidden bg-blue-600 flex items-center justify-center text-white font-bold flex-shrink-0`}>
-      {shouldShowImage ? (
-        <img
-          src={normalizedPicture}
-          alt={name || 'Participant'}
-          className="w-full h-full object-cover"
-          referrerPolicy="no-referrer"
-          onError={() => setImageFailed(true)}
-        />
-      ) : (
-        <span className={textClass}>{initial}</span>
-      )}
-    </div>
-  );
-}
+import ProfileAvatar from '../components/ProfileAvatar';
 
 export default function MeetingRoom() {
   const { id: roomId } = useParams();
@@ -58,6 +36,7 @@ export default function MeetingRoom() {
     isAudioEnabled,
     isVideoEnabled,
     localClientId,
+    getPeerConnection,
   } = useWebRTC(roomId, {
     autoJoin: isAdmitted || isStoredHost || storedRole === 'host',
     initialRole: isStoredHost || storedRole === 'host' ? 'host' : storedRole === 'participant' ? 'participant' : undefined,
@@ -254,9 +233,11 @@ export default function MeetingRoom() {
                 localHandRaised={isHandRaised}
                 localParticipantName={displayName || 'You'}
                 localParticipantPicture={currentUser?.picture || null}
+                localIsHost={isHost}
                 isSharingScreen={isSharingScreen}
                 isAudioEnabled={isAudioEnabled}
                 isVideoEnabled={isVideoEnabled}
+                getPeerConnection={getPeerConnection}
               />
             )}
             
@@ -371,7 +352,7 @@ export default function MeetingRoom() {
                       {activeJoinRequests.map(req => (
                         <div key={req.id} className="flex items-center justify-between gap-3 p-3 bg-gray-700 rounded-lg">
                           <div className="flex items-center gap-2 min-w-0">
-                            <ParticipantAvatar name={req.name} picture={req.picture || null} />
+                            <ProfileAvatar name={req.name} picture={req.picture || null} className="w-8 h-8 flex-shrink-0" textClass="text-xs" />
                             <span className="text-sm font-medium text-white truncate">{req.name}</span>
                           </div>
                           <div className="flex items-center gap-2">
@@ -402,9 +383,11 @@ export default function MeetingRoom() {
                 <h3 className="text-sm font-bold text-gray-400 uppercase tracking-wider text-xs mb-3">In Call</h3>
                 <div className="space-y-3">
                   <div className="flex items-center gap-3 py-2">
-                    <ParticipantAvatar
+                    <ProfileAvatar
                       name={displayName || 'You'}
                       picture={currentUser?.picture || null}
+                      className="w-8 h-8 flex-shrink-0"
+                      textClass="text-xs"
                     />
                     <span className="text-sm font-medium text-white">
                       {displayName || 'You'} {isHost ? '(Host)' : '(You)'}
@@ -412,9 +395,11 @@ export default function MeetingRoom() {
                   </div>
                   {inCallParticipantIds.map(peerId => (
                     <div key={peerId} className="flex items-center gap-3 py-2">
-                      <ParticipantAvatar
+                      <ProfileAvatar
                         name={participantsMetadata[peerId]?.name || 'Participant'}
                         picture={participantsMetadata[peerId]?.picture || null}
+                        className="w-8 h-8 flex-shrink-0"
+                        textClass="text-xs"
                       />
                       <span className="text-sm font-medium text-white">
                         {participantsMetadata[peerId]?.name || 'Participant'}

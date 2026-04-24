@@ -1,37 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Maximize2, MicOff, Minimize2, X } from 'lucide-react';
 import { getCurrentUser } from '../utils/currentUser';
-
-function getDisplayInitial(name = 'P') {
-  return `${name}`.trim().charAt(0).toUpperCase() || 'P';
-}
+import ProfileAvatar from './ProfileAvatar';
+import SpeakerHighlight from './SpeakerHighlight';
+import useActiveSpeaker from '../hooks/useActiveSpeaker';
 
 function hasUsableVideo(stream) {
   return Boolean(
     stream?.getVideoTracks?.().some((track) => track.readyState === 'live')
-  );
-}
-
-function AvatarBadge({ name, picture, sizeClass = 'h-24 w-24', textClass = 'text-4xl' }) {
-  const [imageFailed, setImageFailed] = useState(false);
-  const shouldShowImage = Boolean(picture && !imageFailed);
-
-  return (
-    <div className={`${sizeClass} overflow-hidden rounded-full border-2 border-white/60 bg-sky-700/90 shadow-xl`}>
-      {shouldShowImage ? (
-        <img
-          src={picture}
-          alt={name || 'Participant'}
-          className="h-full w-full object-cover"
-          referrerPolicy="no-referrer"
-          onError={() => setImageFailed(true)}
-        />
-      ) : (
-        <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-sky-600 to-blue-900 text-white">
-          <span className={`font-light ${textClass}`}>{getDisplayInitial(name)}</span>
-        </div>
-      )}
-    </div>
   );
 }
 
@@ -58,89 +34,15 @@ function SpeakerBackdrop({ active = false, featured = false }) {
   );
 }
 
-function useSpeakingParticipants(tiles) {
-  const [speakingIds, setSpeakingIds] = useState([]);
-
-  useEffect(() => {
-    const AudioContextClass = window.AudioContext || window.webkitAudioContext;
-    if (!AudioContextClass || !tiles.length) {
-      setSpeakingIds([]);
-      return undefined;
-    }
-
-    const audioContext = new AudioContextClass();
-    const monitoredSources = [];
-    const sampleBuffer = new Uint8Array(512);
-
-    const isSameIds = (left, right) => (
-      left.length === right.length && left.every((item, index) => item === right[index])
-    );
-
-    tiles.forEach((tile) => {
-      const audioTracks = tile.stream?.getAudioTracks?.() || [];
-      if (!audioTracks.length || tile.isAudioEnabled === false) {
-        return;
-      }
-
-      try {
-        const stream = new MediaStream(audioTracks);
-        const source = audioContext.createMediaStreamSource(stream);
-        const analyser = audioContext.createAnalyser();
-        analyser.fftSize = 1024;
-        analyser.smoothingTimeConstant = 0.75;
-        source.connect(analyser);
-
-        monitoredSources.push({
-          id: tile.id,
-          analyser,
-          source,
-        });
-      } catch (error) {
-        console.warn('Unable to monitor speaking activity for participant', tile.id, error);
-      }
-    });
-
-    const tick = () => {
-      const activeSpeakers = monitoredSources
-        .filter(({ analyser }) => {
-          analyser.getByteTimeDomainData(sampleBuffer);
-
-          let total = 0;
-          for (let index = 0; index < sampleBuffer.length; index += 1) {
-            const normalized = (sampleBuffer[index] - 128) / 128;
-            total += normalized * normalized;
-          }
-
-          const rms = Math.sqrt(total / sampleBuffer.length);
-          return rms > 0.025;
-        })
-        .map(({ id }) => id)
-        .sort();
-
-      setSpeakingIds((current) => (isSameIds(current, activeSpeakers) ? current : activeSpeakers));
-    };
-
-    audioContext.resume().catch(() => {});
-    tick();
-    const intervalId = window.setInterval(tick, 160);
-
-    return () => {
-      window.clearInterval(intervalId);
-      monitoredSources.forEach(({ source }) => source.disconnect());
-      audioContext.close().catch(() => {});
-    };
-  }, [tiles]);
-
-  return new Set(speakingIds);
-}
-
 function VideoPlayer({
   stream,
   label,
   picture,
+  isHost = false,
   isLocal = false,
   isHandRaised = false,
   isSpeaking = false,
+  audioLevel = 0,
   isVideoEnabled = true,
   isAudioEnabled = true,
   featured = false,
@@ -153,6 +55,7 @@ function VideoPlayer({
   const resolvedLabel = isLocal ? (label || loggedInUser?.name || loggedInUser?.email || 'You') : label;
   const hasLiveVideoTrack = hasUsableVideo(stream);
   const shouldShowVideo = Boolean(isVideoEnabled) && hasLiveVideoTrack;
+  const ringStrength = Math.max(0, Math.min(audioLevel * 220, 1));
 
   useEffect(() => {
     setVideoReady(false);
@@ -172,76 +75,93 @@ function VideoPlayer({
   }, [hasLiveVideoTrack, isVideoEnabled, stream]);
 
   return (
-    <div
-      className={`relative overflow-hidden border group flex items-center justify-center transition-all duration-200 ${
-        featured ? 'w-full h-full rounded-3xl bg-black' : 'w-full aspect-video rounded-2xl bg-gray-800'
-      } ${
-        isSpeaking
-          ? 'border-emerald-300 shadow-[0_0_0_4px_rgba(52,211,153,0.28),0_0_35px_rgba(52,211,153,0.25)]'
-          : 'border-gray-700/50 shadow-2xl'
-      }`}
-      style={isSpeaking ? { animation: 'speakerTile 1.15s ease-in-out infinite' } : undefined}
-    >
-      {shouldShowVideo ? (
-        <video
-          ref={videoRef}
-          autoPlay
-          playsInline
-          muted
-          onLoadedMetadata={() => setVideoReady(true)}
-          onLoadedData={() => setVideoReady(true)}
-          onCanPlay={() => setVideoReady(true)}
-          className={`w-full h-full ${featured ? 'object-contain bg-black' : 'object-cover'} ${isLocal ? 'transform -scale-x-100' : ''}`}
-          style={{ visibility: videoReady ? 'visible' : 'visible' }}
-        />
-      ) : (
-        <div className="absolute inset-0 flex items-center justify-center bg-[radial-gradient(circle_at_top,#31445f_0%,#1f2d44_45%,#142033_100%)]">
-          <SpeakerBackdrop active={isSpeaking} featured={featured} />
-          <div
-            className="relative z-10"
-            style={isSpeaking ? { animation: 'speakerAvatar 1.25s ease-in-out infinite' } : undefined}
-          >
-            <AvatarBadge
-              name={resolvedLabel}
-              picture={resolvedPicture}
-              sizeClass={featured ? 'h-36 w-36 sm:h-44 sm:w-44' : compact ? 'h-16 w-16' : 'h-24 w-24'}
-              textClass={featured ? 'text-6xl' : compact ? 'text-2xl' : 'text-4xl'}
-            />
+    <SpeakerHighlight active={isSpeaking} featured={featured}>
+      <div
+        className={`relative overflow-hidden border group flex items-center justify-center transition-all duration-500 ${
+          featured ? 'w-full h-full rounded-3xl bg-black' : 'w-full aspect-video rounded-2xl bg-gray-800'
+        } ${
+          isSpeaking
+            ? 'border-emerald-300 shadow-[0_0_0_4px_rgba(52,211,153,0.24),0_0_35px_rgba(52,211,153,0.22)]'
+            : 'border-gray-700/50 shadow-2xl'
+        }`}
+      >
+        {shouldShowVideo ? (
+          <video
+            ref={videoRef}
+            autoPlay
+            playsInline
+            muted
+            onLoadedMetadata={() => setVideoReady(true)}
+            onLoadedData={() => setVideoReady(true)}
+            onCanPlay={() => setVideoReady(true)}
+            className={`w-full h-full ${featured ? 'object-contain bg-black' : 'object-cover'} ${isLocal ? 'transform -scale-x-100' : ''}`}
+            style={{ visibility: videoReady ? 'visible' : 'visible' }}
+          />
+        ) : (
+          <div className="absolute inset-0 flex items-center justify-center bg-[radial-gradient(circle_at_top,#31445f_0%,#1f2d44_45%,#142033_100%)]">
+            <SpeakerBackdrop active={isSpeaking} featured={featured} />
+            <SpeakerHighlight active={isSpeaking} featured={featured} pulseTarget="avatar">
+              <div className="relative z-10">
+                <ProfileAvatar
+                  name={resolvedLabel}
+                  picture={resolvedPicture}
+                  className={featured ? 'h-36 w-36 sm:h-44 sm:w-44' : compact ? 'h-16 w-16' : 'h-24 w-24'}
+                  textClass={featured ? 'text-6xl' : compact ? 'text-2xl' : 'text-4xl'}
+                  ringClassName="border-2 border-white/60"
+                />
+              </div>
+            </SpeakerHighlight>
           </div>
-        </div>
-      )}
+        )}
 
-      <div className="absolute top-4 left-4 z-10">
-        <AvatarBadge
-          name={resolvedLabel}
-          picture={resolvedPicture}
-          sizeClass={compact ? 'h-10 w-10' : 'h-12 w-12'}
-          textClass={compact ? 'text-base' : 'text-lg'}
-        />
+        <div className="absolute top-4 left-4 z-10 flex items-center gap-2">
+          <ProfileAvatar
+            name={resolvedLabel}
+            picture={resolvedPicture}
+            className={compact ? 'h-10 w-10' : 'h-12 w-12'}
+            textClass={compact ? 'text-base' : 'text-lg'}
+            ringClassName={isSpeaking ? 'border-2 border-emerald-200/90' : 'border-2 border-white/70'}
+          />
+          {isHost && (
+            <span className="rounded-full bg-black/60 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-white/85 backdrop-blur-md">
+              Host
+            </span>
+          )}
+        </div>
+
+        {!isAudioEnabled && (
+          <div className="absolute top-4 right-4 rounded-full bg-black/55 p-2 text-white shadow-lg z-10">
+            <MicOff size={compact ? 14 : 16} />
+          </div>
+        )}
+
+        {isHandRaised && (
+          <div className="absolute top-20 right-4 bg-yellow-500 text-white p-2 rounded-full shadow-lg border-2 border-yellow-400 z-10">
+            <span className="text-xs font-bold">RH</span>
+          </div>
+        )}
+
+        <div className="absolute bottom-4 left-4 right-4 flex items-center justify-between">
+          <div className={`bg-black/60 backdrop-blur-md rounded-lg text-white font-semibold tracking-wide border border-white/10 shadow-lg ${
+            compact ? 'px-3 py-1 text-xs' : 'px-4 py-1.5 text-sm'
+          }`}>
+            {resolvedLabel}
+          </div>
+
+          {isSpeaking && (
+            <div className="flex items-center gap-1 rounded-full bg-black/45 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.2em] text-emerald-100">
+              <span
+                className="h-2 w-2 rounded-full bg-emerald-300"
+                style={{ boxShadow: `0 0 ${14 + (ringStrength * 12)}px rgba(110, 231, 183, 0.9)` }}
+              />
+              Speaking
+            </div>
+          )}
+        </div>
+
+        <div className="absolute inset-0 bg-gradient-to-t from-black/40 via-transparent to-transparent pointer-events-none" />
       </div>
-
-      {!isAudioEnabled && (
-        <div className="absolute top-4 right-4 rounded-full bg-black/55 p-2 text-white shadow-lg z-10">
-          <MicOff size={compact ? 14 : 16} />
-        </div>
-      )}
-
-      {isHandRaised && (
-        <div className="absolute top-20 right-4 bg-yellow-500 text-white p-2 rounded-full shadow-lg border-2 border-yellow-400 z-10">
-          <span className="text-xs font-bold">RH</span>
-        </div>
-      )}
-
-      <div className="absolute bottom-4 left-4 right-4 flex items-center justify-between">
-        <div className={`bg-black/60 backdrop-blur-md rounded-lg text-white font-semibold tracking-wide border border-white/10 shadow-lg ${
-          compact ? 'px-3 py-1 text-xs' : 'px-4 py-1.5 text-sm'
-        }`}>
-          {resolvedLabel}
-        </div>
-      </div>
-
-      <div className="absolute inset-0 bg-gradient-to-t from-black/40 via-transparent to-transparent pointer-events-none" />
-    </div>
+    </SpeakerHighlight>
   );
 }
 
@@ -267,9 +187,11 @@ export default function VideoGrid({
   localHandRaised = false,
   localParticipantName = 'You',
   localParticipantPicture = null,
+  localIsHost = false,
   isSharingScreen = false,
   isAudioEnabled = true,
   isVideoEnabled = true,
+  getPeerConnection,
 }) {
   const [selectedTile, setSelectedTile] = useState(null);
   const [hideLocalThumbnail, setHideLocalThumbnail] = useState(false);
@@ -282,6 +204,7 @@ export default function VideoGrid({
       picture: participantsMetadata[peerId]?.picture || null,
       isHandRaised: participantsMetadata[peerId]?.isHandRaised,
       isSharingScreen: participantsMetadata[peerId]?.isSharingScreen,
+      isHost: participantsMetadata[peerId]?.role === 'host',
       isAudioEnabled: participantsMetadata[peerId]?.isAudioEnabled ?? true,
       isVideoEnabled: participantsMetadata[peerId]?.isVideoEnabled ?? true,
       isLocal: false,
@@ -295,16 +218,21 @@ export default function VideoGrid({
     picture: localParticipantPicture,
     isHandRaised: localHandRaised,
     isSharingScreen,
+    isHost: localIsHost,
     isAudioEnabled,
     isVideoEnabled,
     isLocal: true,
-  }), [isAudioEnabled, isSharingScreen, isVideoEnabled, localHandRaised, localParticipantName, localParticipantPicture, localStream]);
+  }), [isAudioEnabled, isSharingScreen, isVideoEnabled, localHandRaised, localIsHost, localParticipantName, localParticipantPicture, localStream]);
 
-  const speakingParticipantIds = useSpeakingParticipants([localTile, ...remoteTiles]);
+  const {
+    dominantSpeakerId,
+    speakingIds: speakingParticipantIds,
+    audioLevels,
+  } = useActiveSpeaker([localTile, ...remoteTiles], getPeerConnection);
   const prioritizedSpeakerTile = useMemo(() => {
     const allTiles = [localTile, ...remoteTiles];
-    return allTiles.find((tile) => speakingParticipantIds.has(tile.id)) || null;
-  }, [localTile, remoteTiles, speakingParticipantIds]);
+    return allTiles.find((tile) => tile.id === dominantSpeakerId) || null;
+  }, [dominantSpeakerId, localTile, remoteTiles]);
 
   const featuredTile = useMemo(() => {
     if (selectedTile) {
@@ -324,7 +252,7 @@ export default function VideoGrid({
       return remotePresenter;
     }
 
-    if (prioritizedSpeakerTile) {
+    if (prioritizedSpeakerTile && speakingParticipantIds.size > 0) {
       return prioritizedSpeakerTile;
     }
 
@@ -339,11 +267,11 @@ export default function VideoGrid({
   const standardGridTiles = useMemo(() => {
     const tiles = [localTile, ...remoteTiles]
       .filter((tile) => tile.stream)
-      .sort((left, right) => {
-        const leftSpeaking = speakingParticipantIds.has(left.id) ? 1 : 0;
-        const rightSpeaking = speakingParticipantIds.has(right.id) ? 1 : 0;
-        return rightSpeaking - leftSpeaking;
-      });
+        .sort((left, right) => {
+          const leftLevel = audioLevels[left.id] || 0;
+          const rightLevel = audioLevels[right.id] || 0;
+          return rightLevel - leftLevel;
+        });
     if (tiles.length <= 1) return 'grid-cols-1 max-w-4xl';
     if (tiles.length === 2) return 'grid-cols-1 md:grid-cols-2 max-w-6xl';
     if (tiles.length <= 4) return 'grid-cols-2 max-w-6xl';
@@ -354,11 +282,11 @@ export default function VideoGrid({
     [localTile, ...remoteTiles]
       .filter((tile) => tile.stream)
       .sort((left, right) => {
-        const leftSpeaking = speakingParticipantIds.has(left.id) ? 1 : 0;
-        const rightSpeaking = speakingParticipantIds.has(right.id) ? 1 : 0;
-        return rightSpeaking - leftSpeaking;
+        const leftLevel = audioLevels[left.id] || 0;
+        const rightLevel = audioLevels[right.id] || 0;
+        return rightLevel - leftLevel;
       })
-  ), [localTile, remoteTiles, speakingParticipantIds]);
+  ), [audioLevels, localTile, remoteTiles]);
 
   if (featuredTile) {
     return (
@@ -371,9 +299,11 @@ export default function VideoGrid({
             stream={featuredTile.stream}
             label={`${featuredTile.label} (Presenting)`}
             picture={featuredTile.picture}
+            isHost={featuredTile.isHost}
             isLocal={featuredTile.isLocal}
             isHandRaised={featuredTile.isHandRaised}
             isSpeaking={speakingParticipantIds.has(featuredTile.id)}
+            audioLevel={audioLevels[featuredTile.id] || 0}
             isAudioEnabled={featuredTile.isAudioEnabled}
             isVideoEnabled={featuredTile.isVideoEnabled}
             featured
@@ -411,9 +341,11 @@ export default function VideoGrid({
                     stream={tile.stream}
                     label={tile.label}
                     picture={tile.picture}
+                    isHost={tile.isHost}
                     isLocal={tile.isLocal}
                     isHandRaised={tile.isHandRaised}
                     isSpeaking={speakingParticipantIds.has(tile.id)}
+                    audioLevel={audioLevels[tile.id] || 0}
                     isAudioEnabled={tile.isAudioEnabled}
                     isVideoEnabled={tile.isVideoEnabled}
                     compact
@@ -448,13 +380,21 @@ export default function VideoGrid({
           0%, 100% { transform: scale(0.98); }
           50% { transform: scale(1.05); }
         }
+        @keyframes speakerAvatarPulse {
+          0%, 100% { transform: scale(1); }
+          50% { transform: scale(1.05); }
+        }
         @keyframes speakerGlow {
           0%, 100% { transform: scale(0.96); opacity: 0.2; }
           50% { transform: scale(1.14); opacity: 0.55; }
         }
-        @keyframes speakerTile {
-          0%, 100% { transform: scale(0.99); }
-          50% { transform: scale(1.025); }
+        @keyframes speakerTilePulse {
+          0%, 100% { transform: scale(1); }
+          50% { transform: scale(1.018); }
+        }
+        @keyframes speakerRing {
+          0%, 100% { opacity: 0.35; transform: scale(0.99); }
+          50% { opacity: 0.95; transform: scale(1.01); }
         }
       `}</style>
       {remoteTiles.map((tile) => (
@@ -471,9 +411,11 @@ export default function VideoGrid({
               stream={tile.stream}
               label={tile.label}
               picture={tile.picture}
+              isHost={tile.isHost}
               isLocal={tile.isLocal}
               isHandRaised={tile.isHandRaised}
               isSpeaking={speakingParticipantIds.has(tile.id)}
+              audioLevel={audioLevels[tile.id] || 0}
               isAudioEnabled={tile.isAudioEnabled}
               isVideoEnabled={tile.isVideoEnabled}
             />
