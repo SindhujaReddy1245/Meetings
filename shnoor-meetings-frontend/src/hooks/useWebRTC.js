@@ -304,6 +304,15 @@ export function useWebRTC(roomId, options = {}) {
     syncParticipantState();
   }, [createPeerConnection, sendSignalingMessage, startSessionTracking, syncParticipantState]);
 
+  const shouldInitiateOffer = useCallback((peerId) => {
+    if (!peerId || peerId === clientId.current) {
+      return false;
+    }
+
+    // Deterministic initiator selection prevents dual-offer glare.
+    return String(clientId.current).localeCompare(String(peerId)) < 0;
+  }, []);
+
   const handleSignalingData = useCallback(async (data, stream) => {
     const { type, sender, target } = data;
     const peerId = sender || data.client_id;
@@ -318,7 +327,7 @@ export function useWebRTC(roomId, options = {}) {
 
     switch (type) {
       case 'user-joined': {
-        if (!stream) {
+        if (!stream || !shouldInitiateOffer(peerId)) {
           return;
         }
         await createAndSendOffer(peerId, stream, {
@@ -474,13 +483,13 @@ export function useWebRTC(roomId, options = {}) {
             return nextMetadata;
           });
 
-          if (isHost.current && stream) {
+          if (stream) {
             for (const participant of data.participants) {
               if (!participant?.id || participant.id === clientId.current) {
                 continue;
               }
 
-              if (!peerConnections.current[participant.id]) {
+              if (!peerConnections.current[participant.id] && shouldInitiateOffer(participant.id)) {
                 await createAndSendOffer(participant.id, stream, participant);
               }
             }
@@ -538,6 +547,7 @@ export function useWebRTC(roomId, options = {}) {
     flushPendingIceCandidates,
     roomId,
     sendSignalingMessage,
+    shouldInitiateOffer,
   ]);
 
   useEffect(() => {
