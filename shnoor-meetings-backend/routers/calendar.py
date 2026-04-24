@@ -1,6 +1,6 @@
 import os
 import threading
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import List, Optional
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
@@ -12,7 +12,7 @@ from core.database import (
     normalize_uuid_or_none,
     release_db_connection,
 )
-from core.reminders import process_pending_calendar_reminders
+from core.reminders import process_pending_calendar_reminders, send_calendar_reminder_email
 
 router = APIRouter(
     prefix="/api/calendar",
@@ -58,6 +58,28 @@ def trigger_calendar_reminder_check():
         name="calendar-reminder-kick",
         daemon=True,
     ).start()
+
+
+@router.post("/reminders/test")
+async def send_test_reminder(email: str = Query(..., min_length=3)):
+    normalized_email = (email or "").strip().lower()
+    if not normalized_email:
+        raise HTTPException(status_code=400, detail="A valid email is required")
+
+    test_event = {
+        "id": "manual-reminder-test",
+        "title": "SMTP Reminder Test",
+        "category": "meetings",
+        "start_time": datetime.utcnow() + timedelta(minutes=5),
+        "reminder_offset_minutes": 5,
+        "user_email": normalized_email,
+    }
+
+    try:
+        send_calendar_reminder_email(test_event)
+        return {"message": f"Test reminder sent to {normalized_email}"}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to send test reminder: {str(exc)}")
 
 @router.get("/events", response_model=List[CalendarEvent])
 async def get_events(

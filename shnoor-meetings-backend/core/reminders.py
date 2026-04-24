@@ -2,6 +2,9 @@ import logging
 import os
 import smtplib
 import threading
+import urllib.request
+import urllib.error
+import json
 from datetime import datetime
 from email.message import EmailMessage
 from typing import Optional
@@ -11,6 +14,7 @@ from core.database import get_db_connection, get_dict_cursor, release_db_connect
 logger = logging.getLogger(__name__)
 DEFAULT_REMINDER_OFFSET_MINUTES = int((os.getenv("CALENDAR_REMINDER_OFFSET_MINUTES") or "5").strip() or "5")
 REMINDER_POLL_INTERVAL_SECONDS = int((os.getenv("CALENDAR_REMINDER_POLL_INTERVAL_SECONDS") or "15").strip() or "15")
+REMINDER_GRACE_WINDOW_MINUTES = int((os.getenv("CALENDAR_REMINDER_GRACE_WINDOW_MINUTES") or "30").strip() or "30")
 
 _reminder_thread: Optional[threading.Thread] = None
 _stop_event = threading.Event()
@@ -57,6 +61,29 @@ def _get_missing_smtp_keys():
     return missing_keys
 
 
+def _get_resend_settings():
+    return {
+        "api_key": (os.getenv("RESEND_API_KEY") or "").strip(),
+        "from_email": (os.getenv("RESEND_FROM_EMAIL") or "").strip() or (os.getenv("SMTP_FROM_EMAIL") or "").strip(),
+        "from_name": (os.getenv("RESEND_FROM_NAME") or "").strip() or (os.getenv("SMTP_FROM_NAME") or "Shnoor Meetings").strip(),
+    }
+
+
+def _resend_is_configured():
+    settings = _get_resend_settings()
+    return all([settings["api_key"], settings["from_email"]])
+
+
+def _get_missing_resend_keys():
+    settings = _get_resend_settings()
+    missing_keys = []
+    if not settings["api_key"]:
+        missing_keys.append("RESEND_API_KEY")
+    if not settings["from_email"]:
+        missing_keys.append("RESEND_FROM_EMAIL")
+    return missing_keys
+
+
 def _build_reminder_subject(event: dict) -> str:
     category = (event.get("category") or "meeting").rstrip("s").capitalize()
     offset_minutes = event.get("reminder_offset_minutes") or DEFAULT_REMINDER_OFFSET_MINUTES
@@ -89,6 +116,26 @@ def _build_reminder_body(event: dict) -> str:
 
 
 def send_calendar_reminder_email(event: dict):
+    sent = False
+
+    if _smtp_is_configured():
+        _send_calendar_reminder_via_smtp(event)
+        sent = True
+    elif _resend_is_configured():
+        _send_calendar_reminder_via_resend(event)
+        sent = True
+
+    if not sent:
+        missing_smtp = _get_missing_smtp_keys()
+        missing_resend = _get_missing_resend_keys()
+        raise RuntimeError(
+            "No email provider configured for reminders. "
+            f"Missing SMTP keys: {', '.join(missing_smtp) or 'none'}; "
+            f"Missing Resend keys: {', '.join(missing_resend) or 'none'}."
+        )
+
+
+def _send_calendar_reminder_via_smtp(event: dict):
     settings = _get_smtp_settings()
     recipient_email = (event.get("user_email") or "").strip()
     if not recipient_email:
@@ -110,11 +157,45 @@ def send_calendar_reminder_email(event: dict):
         server.send_message(message)
 
 
+def _send_calendar_reminder_via_resend(event: dict):
+    settings = _get_resend_settings()
+    recipient_email = (event.get("user_email") or "").strip()
+    if not recipient_email:
+        raise ValueError("Calendar event has no recipient email")
+
+    payload = {
+        "from": f"{settings['from_name']} <{settings['from_email']}>",
+        "to": [recipient_email],
+        "subject": _build_reminder_subject(event),
+        "text": _build_reminder_body(event),
+    }
+
+    request = urllib.request.Request(
+        "https://api.resend.com/emails",
+        data=json.dumps(payload).encode("utf-8"),
+        headers={
+            "Authorization": f"Bearer {settings['api_key']}",
+            "Content-Type": "application/json",
+        },
+        method="POST",
+    )
+
+    try:
+        with urllib.request.urlopen(request, timeout=30) as response:
+            if response.status >= 400:
+                body = response.read().decode("utf-8", errors="ignore")
+                raise RuntimeError(f"Resend API failed with status {response.status}: {body}")
+    except urllib.error.HTTPError as exc:
+        body = exc.read().decode("utf-8", errors="ignore")
+        raise RuntimeError(f"Resend API error {exc.code}: {body}") from exc
+
+
 def process_pending_calendar_reminders():
-    if not _smtp_is_configured():
+    if not _smtp_is_configured() and not _resend_is_configured():
         logger.warning(
-            "Calendar reminders skipped because SMTP settings are incomplete. Missing: %s",
-            ", ".join(_get_missing_smtp_keys()) or "unknown",
+            "Calendar reminders skipped because email provider settings are incomplete. Missing SMTP: %s | Missing Resend: %s",
+            ", ".join(_get_missing_smtp_keys()) or "none",
+            ", ".join(_get_missing_resend_keys()) or "none",
         )
         return
 
@@ -133,16 +214,17 @@ def process_pending_calendar_reminders():
                 calendar_events.category,
                 calendar_events.start_time,
                 calendar_events.reminder_offset_minutes,
-                COALESCE(calendar_events.recipient_email, users.email) AS user_email
+                LOWER(BTRIM(COALESCE(calendar_events.recipient_email, users.email))) AS user_email
             FROM calendar_events
             LEFT JOIN users ON users.id = calendar_events.user_id
             WHERE calendar_events.reminder_sent_at IS NULL
               AND COALESCE(calendar_events.recipient_email, users.email) IS NOT NULL
-              AND calendar_events.start_time > NOW()
-              AND calendar_events.start_time <= (NOW() + make_interval(mins => calendar_events.reminder_offset_minutes))
+              AND (calendar_events.start_time - make_interval(mins => COALESCE(calendar_events.reminder_offset_minutes, %s))) <= NOW()
+              AND calendar_events.start_time >= (NOW() - make_interval(mins => %s))
               AND LOWER(COALESCE(calendar_events.category, 'meetings')) IN ('meetings', 'meeting', 'personal', 'reminders', 'reminder', 'remainder', 'remainders')
             ORDER BY calendar_events.start_time ASC
-            """
+            """,
+            (DEFAULT_REMINDER_OFFSET_MINUTES, REMINDER_GRACE_WINDOW_MINUTES),
         )
         pending_events = cursor.fetchall()
 
