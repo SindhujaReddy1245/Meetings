@@ -9,10 +9,11 @@ import LobbyPage from './pages/LobbyPage';
 import LoginPage from './pages/LoginPage';
 import ProtectedRoute from './components/ProtectedRoute';
 import { applyThemePreference, getMeetingPreferences } from './utils/meetingUtils';
+import { getAllowedStoredUser } from './utils/currentUser';
 
 
 function App() {
-  const [user, setUser] = useState(() => JSON.parse(localStorage.getItem('user')));
+  const [user, setUser] = useState(() => getAllowedStoredUser());
 
   useEffect(() => {
     applyThemePreference(getMeetingPreferences().theme);
@@ -20,7 +21,7 @@ function App() {
 
   useEffect(() => {
     const syncUser = () => {
-      setUser(() => JSON.parse(localStorage.getItem('user')));
+      setUser(() => getAllowedStoredUser());
     };
 
     window.addEventListener('storage', syncUser);

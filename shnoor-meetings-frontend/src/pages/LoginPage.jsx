@@ -2,17 +2,13 @@ import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { format, formatDistanceToNowStrict, isAfter } from 'date-fns';
 import { saveUser } from '../services/userService';
-import { ensureFrontendUserId } from '../utils/currentUser';
+import { clearStoredUser, ensureFrontendUserId, getAllowedStoredUser, isAllowedShnoorEmail } from '../utils/currentUser';
 import { buildApiUrl } from '../utils/api';
 
 const backendAuthBaseUrl = (
   import.meta.env.VITE_API_BASE_URL ||
   'https://meetings-vr93.onrender.com'
 ).replace(/\/$/, '');
-
-function isAllowedShnoorEmail(email) {
-  return email.trim().toLowerCase().endsWith('@shnoor.com');
-}
 
 function normalizeEventCategory(category) {
   const normalized = `${category || 'meetings'}`.trim().toLowerCase();
@@ -45,7 +41,7 @@ export default function LoginPage() {
   const [isLoadingPreview, setIsLoadingPreview] = useState(false);
 
   useEffect(() => {
-    const user = JSON.parse(localStorage.getItem('user'));
+    const user = getAllowedStoredUser();
     if (user) {
       navigate('/', { replace: true });
     }
@@ -73,7 +69,8 @@ export default function LoginPage() {
         const user = JSON.parse(decodedPayload);
 
         if (!isAllowedShnoorEmail(user?.email || '')) {
-          alert('Only @shnoor.com email addresses are allowed.');
+          clearStoredUser();
+          alert('this only works for shnoor mail ids');
           window.history.replaceState({}, document.title, '/login');
           return;
         }
@@ -168,7 +165,7 @@ export default function LoginPage() {
     }
 
     if (!isAllowedShnoorEmail(normalizedEmail)) {
-      alert('Only @shnoor.com email addresses are allowed.');
+      alert('this only works for shnoor mail ids');
       return;
     }
 
