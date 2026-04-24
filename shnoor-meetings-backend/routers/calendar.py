@@ -1,3 +1,4 @@
+import os
 from datetime import datetime
 from typing import List, Optional
 from fastapi import APIRouter, HTTPException, Query
@@ -15,6 +16,8 @@ router = APIRouter(
     prefix="/api/calendar",
     tags=["Calendar"]
 )
+
+DEFAULT_REMINDER_OFFSET_MINUTES = int((os.getenv("CALENDAR_REMINDER_OFFSET_MINUTES") or "5").strip() or "5")
 
 
 def normalize_event_category(category: Optional[str]) -> str:
@@ -141,7 +144,7 @@ async def create_event(event: CalendarEvent):
             INSERT INTO calendar_events (id, user_id, title, description, start_time, end_time, category, room_id, reminder_offset_minutes, reminder_sent_at)
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, NULL)
             """,
-            (event_id, user_id, event.title, event.description, event.start_time, event.end_time, category, room_id, 30)
+            (event_id, user_id, event.title, event.description, event.start_time, event.end_time, category, room_id, DEFAULT_REMINDER_OFFSET_MINUTES)
         )
         conn.commit()
     except Exception as e:
@@ -204,11 +207,11 @@ async def update_event(id: str, event: CalendarEvent):
                 end_time = %s,
                 category = %s,
                 room_id = %s,
-                reminder_offset_minutes = 30,
+                reminder_offset_minutes = %s,
                 reminder_sent_at = NULL
             WHERE id = %s
             """,
-            (event_user_id, event.title, event.description, event.start_time, event.end_time, category, room_id, id)
+            (event_user_id, event.title, event.description, event.start_time, event.end_time, category, room_id, DEFAULT_REMINDER_OFFSET_MINUTES, id)
         )
         conn.commit()
         if cursor.rowcount == 0:

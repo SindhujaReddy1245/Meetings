@@ -2,12 +2,14 @@ import logging
 import os
 import smtplib
 import threading
+from datetime import datetime
 from email.message import EmailMessage
 from typing import Optional
 
 from core.database import get_db_connection, get_dict_cursor, release_db_connection
 
 logger = logging.getLogger(__name__)
+DEFAULT_REMINDER_OFFSET_MINUTES = int((os.getenv("CALENDAR_REMINDER_OFFSET_MINUTES") or "5").strip() or "5")
 
 _reminder_thread: Optional[threading.Thread] = None
 _stop_event = threading.Event()
@@ -37,17 +39,27 @@ def _smtp_is_configured():
 
 def _build_reminder_subject(event: dict) -> str:
     category = (event.get("category") or "meeting").rstrip("s").capitalize()
-    return f"Reminder: {category} '{event.get('title') or 'Untitled'}' starts in 30 minutes"
+    offset_minutes = event.get("reminder_offset_minutes") or DEFAULT_REMINDER_OFFSET_MINUTES
+    return f"Reminder: {category} '{event.get('title') or 'Untitled'}' starts in {offset_minutes} minutes"
+
+
+def _format_event_start(event_start) -> str:
+    if isinstance(event_start, datetime):
+        timezone_name = event_start.tzname() or "UTC"
+        return event_start.strftime(f"%b %d, %Y at %I:%M %p {timezone_name}")
+
+    return str(event_start)
 
 
 def _build_reminder_body(event: dict) -> str:
     event_title = event.get("title") or "Untitled"
     event_category = ((event.get("category") or "meeting").rstrip("s")).capitalize()
-    event_start = event.get("start_time")
+    event_start = _format_event_start(event.get("start_time"))
+    offset_minutes = event.get("reminder_offset_minutes") or DEFAULT_REMINDER_OFFSET_MINUTES
 
     return (
         f"Hello,\n\n"
-        f"You have a {event_category.lower()} scheduled in 30 minutes.\n\n"
+        f"You have a {event_category.lower()} scheduled in {offset_minutes} minutes.\n\n"
         f"Title: {event_title}\n"
         f"Date and time: {event_start}\n"
         f"Category: {event_category}\n\n"
@@ -94,6 +106,7 @@ def process_pending_calendar_reminders():
                 calendar_events.title,
                 calendar_events.category,
                 calendar_events.start_time,
+                calendar_events.reminder_offset_minutes,
                 users.email AS user_email
             FROM calendar_events
             LEFT JOIN users ON users.id = calendar_events.user_id
