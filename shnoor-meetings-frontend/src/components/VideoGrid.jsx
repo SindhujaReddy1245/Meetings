@@ -14,6 +14,9 @@ function VideoPlayer({
   useEffect(() => {
     if (videoRef.current && stream) {
       videoRef.current.srcObject = stream;
+      videoRef.current.play().catch((error) => {
+        console.warn('Video autoplay failed for stream', error);
+      });
     }
   }, [stream]);
 
@@ -54,6 +57,9 @@ function RemoteAudio({ stream }) {
   useEffect(() => {
     if (audioRef.current && stream) {
       audioRef.current.srcObject = stream;
+      audioRef.current.play().catch((error) => {
+        console.warn('Audio autoplay failed for remote stream', error);
+      });
     }
   }, [stream]);
 

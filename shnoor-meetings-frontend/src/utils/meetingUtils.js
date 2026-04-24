@@ -104,14 +104,10 @@ export function getPreferredMediaConstraints() {
   const preferences = getMeetingPreferences();
 
   return {
-    audio: !preferences.microphoneEnabled
-      ? false
-      : preferences.microphoneId && preferences.microphoneId !== 'default'
+    audio: preferences.microphoneId && preferences.microphoneId !== 'default'
       ? { deviceId: { exact: preferences.microphoneId } }
       : true,
-    video: !preferences.cameraEnabled
-      ? false
-      : preferences.cameraId && preferences.cameraId !== 'default'
+    video: preferences.cameraId && preferences.cameraId !== 'default'
       ? { deviceId: { exact: preferences.cameraId } }
       : true,
   };
@@ -216,16 +212,21 @@ export function formatDuration(durationMs = 0) {
 }
 
 export function getPreJoinMediaState(roomId) {
+  const defaultMediaState = {
+    audioEnabled: getMeetingPreferences().microphoneEnabled !== false,
+    videoEnabled: getMeetingPreferences().cameraEnabled !== false,
+  };
+
   if (!roomId) {
-    return { audioEnabled: true, videoEnabled: true };
+    return defaultMediaState;
   }
 
   try {
     const stored = sessionStorage.getItem(`meeting_prejoin_media_${roomId}`);
-    return stored ? { audioEnabled: true, videoEnabled: true, ...JSON.parse(stored) } : { audioEnabled: true, videoEnabled: true };
+    return stored ? { ...defaultMediaState, ...JSON.parse(stored) } : defaultMediaState;
   } catch (error) {
     console.error('Failed to read pre-join media state:', error);
-    return { audioEnabled: true, videoEnabled: true };
+    return defaultMediaState;
   }
 }
 

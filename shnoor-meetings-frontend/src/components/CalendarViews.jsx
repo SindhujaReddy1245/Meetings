@@ -1,4 +1,5 @@
 import { format, startOfMonth, endOfMonth, startOfWeek, endOfWeek, eachDayOfInterval, isSameMonth, isSameDay, addDays, startOfDay, addHours, isAfter } from 'date-fns';
+import { X } from 'lucide-react';
 
 const eventTheme = {
   personal: {
@@ -26,7 +27,16 @@ function isPendingReminder(event) {
   return (event.category || 'meetings') === 'reminders' && isAfter(new Date(event.start_time), new Date());
 }
 
-export function MonthView({ currentDate, events, onDateClick }) {
+function isMeetingCategory(event) {
+  return `${event?.category || 'meetings'}`.trim().toLowerCase() === 'meetings';
+}
+
+function handleRemoveClick(event, onRemoveEvent) {
+  event.stopPropagation();
+  onRemoveEvent?.();
+}
+
+export function MonthView({ currentDate, events, onDateClick, onRemoveEvent }) {
   const monthStart = startOfMonth(currentDate);
   const monthEnd = endOfMonth(monthStart);
   const startDate = startOfWeek(monthStart);
@@ -65,13 +75,28 @@ export function MonthView({ currentDate, events, onDateClick }) {
                   {dayEvents.map(event => {
                     const theme = getEventTheme(event);
                     return (
-                      <div 
-                        key={event.id} 
-                        className={`text-[10px] px-2 py-1 border-l-4 rounded-sm truncate transition-colors font-medium ${theme.month} ${isPendingReminder(event) ? 'shadow-sm' : ''}`}
+                      <div
+                        key={event.id}
+                        className={`text-[10px] px-2 py-1 border-l-4 rounded-sm transition-colors font-medium ${theme.month} ${isPendingReminder(event) ? 'shadow-sm' : ''}`}
                         title={`${event.title} - ${event.description || ''}`}
                       >
-                        {event.title}
-                        {isPendingReminder(event) ? ` • ${format(new Date(event.start_time), 'h:mm a')}` : ''}
+                        <div className="flex items-start justify-between gap-1">
+                          <span className="truncate">
+                            {event.title}
+                            {isPendingReminder(event) ? ` • ${format(new Date(event.start_time), 'h:mm a')}` : ''}
+                          </span>
+                          {isMeetingCategory(event) && (
+                            <button
+                              type="button"
+                              onClick={(clickEvent) => handleRemoveClick(clickEvent, () => onRemoveEvent?.(event.id))}
+                              className="rounded p-0.5 text-gray-500 hover:bg-red-100 hover:text-red-700"
+                              title="Remove meeting"
+                              aria-label={`Remove ${event.title || 'meeting'}`}
+                            >
+                              <X size={11} />
+                            </button>
+                          )}
+                        </div>
                       </div>
                     );
                   })}
@@ -85,7 +110,7 @@ export function MonthView({ currentDate, events, onDateClick }) {
   );
 }
 
-export function WeekView({ currentDate, events, onSlotClick }) {
+export function WeekView({ currentDate, events, onSlotClick, onRemoveEvent }) {
   const startDate = startOfWeek(currentDate);
   const days = Array.from({ length: 7 }, (_, i) => addDays(startDate, i));
   const hours = Array.from({ length: 24 }, (_, i) => i);
@@ -117,21 +142,34 @@ export function WeekView({ currentDate, events, onSlotClick }) {
                   const eventStart = new Date(e.start_time);
                   return isSameDay(eventStart, day) && eventStart.getHours() === hour;
                 });
-                
+
                 return (
-                  <div 
-                    key={day.toString() + hour} 
+                  <div
+                    key={day.toString() + hour}
                     onClick={() => onSlotClick(slotStart)}
                     className="flex-1 border-r border-gray-50 relative hover:bg-blue-50/30 cursor-pointer transition-colors"
                   >
                     {slotEvents.map(event => {
                       const theme = getEventTheme(event);
                       return (
-                        <div 
+                        <div
                           key={event.id}
                           className={`absolute inset-x-1 top-1 border-l-4 rounded-sm p-1.5 z-10 shadow-sm ${theme.block}`}
                         >
-                          <div className="text-[10px] font-bold truncate">{event.title}</div>
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="text-[10px] font-bold truncate">{event.title}</div>
+                            {isMeetingCategory(event) && (
+                              <button
+                                type="button"
+                                onClick={(clickEvent) => handleRemoveClick(clickEvent, () => onRemoveEvent?.(event.id))}
+                                className="rounded p-0.5 text-gray-500 hover:bg-red-100 hover:text-red-700"
+                                title="Remove meeting"
+                                aria-label={`Remove ${event.title || 'meeting'}`}
+                              >
+                                <X size={12} />
+                              </button>
+                            )}
+                          </div>
                           <div className={`text-[9px] font-medium ${theme.text}`}>
                             {format(new Date(event.start_time), 'h:mm a')}
                             {isPendingReminder(event) ? ' - Reminder' : ''}
@@ -150,7 +188,7 @@ export function WeekView({ currentDate, events, onSlotClick }) {
   );
 }
 
-export function DayView({ currentDate, events, onSlotClick }) {
+export function DayView({ currentDate, events, onSlotClick, onRemoveEvent }) {
   const hours = Array.from({ length: 24 }, (_, i) => i);
 
   return (
@@ -179,18 +217,31 @@ export function DayView({ currentDate, events, onSlotClick }) {
                 <div className="w-16 flex-shrink-0 text-xs text-gray-400 text-right pr-6 pt-1 font-medium">
                   {hour === 0 ? '' : format(addHours(startOfDay(new Date()), hour), 'h a')}
                 </div>
-                <div 
+                <div
                   onClick={() => onSlotClick(slotStart)}
                   className="flex-1 relative hover:bg-blue-50/20 cursor-pointer transition-colors"
                 >
                   {slotEvents.map(event => {
                     const theme = getEventTheme(event);
                     return (
-                      <div 
+                      <div
                         key={event.id}
                         className={`absolute inset-x-4 top-2 border-l-4 rounded-lg p-4 z-10 shadow-md transform hover:scale-[1.01] transition-all ${theme.block}`}
                       >
-                        <div className="text-sm font-bold">{event.title}</div>
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="text-sm font-bold">{event.title}</div>
+                          {isMeetingCategory(event) && (
+                            <button
+                              type="button"
+                              onClick={(clickEvent) => handleRemoveClick(clickEvent, () => onRemoveEvent?.(event.id))}
+                              className="rounded p-1 text-gray-600 hover:bg-red-100 hover:text-red-700"
+                              title="Remove meeting"
+                              aria-label={`Remove ${event.title || 'meeting'}`}
+                            >
+                              <X size={14} />
+                            </button>
+                          )}
+                        </div>
                         <div className={`text-xs mt-1 font-medium italic opacity-90 ${theme.text}`}>
                           {format(new Date(event.start_time), 'h:mm a')}
                           {event.description ? ` - ${event.description}` : ''}
