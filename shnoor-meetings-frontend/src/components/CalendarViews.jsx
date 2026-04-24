@@ -27,10 +27,6 @@ function isPendingReminder(event) {
   return (event.category || 'meetings') === 'reminders' && isAfter(new Date(event.start_time), new Date());
 }
 
-function isMeetingCategory(event) {
-  return `${event?.category || 'meetings'}`.trim().toLowerCase() === 'meetings';
-}
-
 function handleRemoveClick(event, onRemoveEvent) {
   event.stopPropagation();
   onRemoveEvent?.();
@@ -85,17 +81,15 @@ export function MonthView({ currentDate, events, onDateClick, onRemoveEvent }) {
                             {event.title}
                             {isPendingReminder(event) ? ` • ${format(new Date(event.start_time), 'h:mm a')}` : ''}
                           </span>
-                          {isMeetingCategory(event) && (
-                            <button
-                              type="button"
-                              onClick={(clickEvent) => handleRemoveClick(clickEvent, () => onRemoveEvent?.(event.id))}
-                              className="rounded p-0.5 text-gray-500 hover:bg-red-100 hover:text-red-700"
-                              title="Remove meeting"
-                              aria-label={`Remove ${event.title || 'meeting'}`}
-                            >
-                              <X size={11} />
-                            </button>
-                          )}
+                          <button
+                            type="button"
+                            onClick={(clickEvent) => handleRemoveClick(clickEvent, () => onRemoveEvent?.(event.id))}
+                            className="rounded p-0.5 text-gray-500 hover:bg-red-100 hover:text-red-700"
+                            title="Remove event"
+                            aria-label={`Remove ${event.title || 'event'}`}
+                          >
+                            <X size={11} />
+                          </button>
                         </div>
                       </div>
                     );
@@ -158,17 +152,15 @@ export function WeekView({ currentDate, events, onSlotClick, onRemoveEvent }) {
                         >
                           <div className="flex items-start justify-between gap-2">
                             <div className="text-[10px] font-bold truncate">{event.title}</div>
-                            {isMeetingCategory(event) && (
-                              <button
-                                type="button"
-                                onClick={(clickEvent) => handleRemoveClick(clickEvent, () => onRemoveEvent?.(event.id))}
-                                className="rounded p-0.5 text-gray-500 hover:bg-red-100 hover:text-red-700"
-                                title="Remove meeting"
-                                aria-label={`Remove ${event.title || 'meeting'}`}
-                              >
-                                <X size={12} />
-                              </button>
-                            )}
+                            <button
+                              type="button"
+                              onClick={(clickEvent) => handleRemoveClick(clickEvent, () => onRemoveEvent?.(event.id))}
+                              className="rounded p-0.5 text-gray-500 hover:bg-red-100 hover:text-red-700"
+                              title="Remove event"
+                              aria-label={`Remove ${event.title || 'event'}`}
+                            >
+                              <X size={12} />
+                            </button>
                           </div>
                           <div className={`text-[9px] font-medium ${theme.text}`}>
                             {format(new Date(event.start_time), 'h:mm a')}
@@ -228,19 +220,17 @@ export function DayView({ currentDate, events, onSlotClick, onRemoveEvent }) {
                         key={event.id}
                         className={`absolute inset-x-4 top-2 border-l-4 rounded-lg p-4 z-10 shadow-md transform hover:scale-[1.01] transition-all ${theme.block}`}
                       >
-                        <div className="flex items-start justify-between gap-2">
+                        <button
+                          type="button"
+                          onClick={(clickEvent) => handleRemoveClick(clickEvent, () => onRemoveEvent?.(event.id))}
+                          className="absolute right-3 top-3 z-20 rounded-full bg-white/80 p-1 text-gray-600 hover:bg-red-100 hover:text-red-700"
+                          title="Remove event"
+                          aria-label={`Remove ${event.title || 'event'}`}
+                        >
+                          <X size={14} />
+                        </button>
+                        <div className="flex items-start justify-between gap-2 pr-8">
                           <div className="text-sm font-bold">{event.title}</div>
-                          {isMeetingCategory(event) && (
-                            <button
-                              type="button"
-                              onClick={(clickEvent) => handleRemoveClick(clickEvent, () => onRemoveEvent?.(event.id))}
-                              className="rounded p-1 text-gray-600 hover:bg-red-100 hover:text-red-700"
-                              title="Remove meeting"
-                              aria-label={`Remove ${event.title || 'meeting'}`}
-                            >
-                              <X size={14} />
-                            </button>
-                          )}
                         </div>
                         <div className={`text-xs mt-1 font-medium italic opacity-90 ${theme.text}`}>
                           {format(new Date(event.start_time), 'h:mm a')}
