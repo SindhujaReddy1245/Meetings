@@ -6,7 +6,11 @@ function getDisplayInitial(name = 'P') {
 }
 
 function hasUsableVideo(stream) {
-  return Boolean(stream?.getVideoTracks?.().some((track) => track.readyState === 'live'));
+  return Boolean(
+    stream?.getVideoTracks?.().some((track) => (
+      track.readyState === 'live' && track.muted !== true
+    ))
+  );
 }
 
 function AvatarBadge({ name, picture, sizeClass = 'h-24 w-24', textClass = 'text-4xl' }) {
@@ -27,6 +31,29 @@ function AvatarBadge({ name, picture, sizeClass = 'h-24 w-24', textClass = 'text
           <span className={`font-light ${textClass}`}>{getDisplayInitial(name)}</span>
         </div>
       )}
+    </div>
+  );
+}
+
+function SpeakerBackdrop({ active = false, featured = false }) {
+  if (!active) {
+    return null;
+  }
+
+  return (
+    <div className="absolute inset-0 flex items-center justify-center overflow-hidden">
+      <div
+        className={`rounded-full border border-emerald-200/35 bg-emerald-300/10 ${
+          featured ? 'h-72 w-72' : 'h-44 w-44'
+        }`}
+        style={{ animation: 'speakerGlow 1.25s ease-in-out infinite' }}
+      />
+      <div
+        className={`absolute rounded-full bg-emerald-300/18 ${
+          featured ? 'h-56 w-56' : 'h-32 w-32'
+        }`}
+        style={{ animation: 'speakerPulse 1.25s ease-in-out infinite' }}
+      />
     </div>
   );
 }
@@ -120,7 +147,7 @@ function VideoPlayer({
   compact = false,
 }) {
   const videoRef = useRef(null);
-  const shouldShowVideo = isVideoEnabled && hasUsableVideo(stream);
+  const shouldShowVideo = Boolean(isVideoEnabled) && hasUsableVideo(stream);
 
   useEffect(() => {
     if (videoRef.current && stream) {
@@ -151,17 +178,15 @@ function VideoPlayer({
         />
       ) : (
         <div className="absolute inset-0 flex items-center justify-center bg-[radial-gradient(circle_at_top,#1f5f8b_0%,#174d76_40%,#103754_100%)]">
-          {isSpeaking && (
-            <div className="absolute inset-0 flex items-center justify-center">
-              <div className="h-40 w-40 rounded-full bg-emerald-300/20 animate-ping" />
-            </div>
-          )}
-          <AvatarBadge
-            name={label}
-            picture={picture}
-            sizeClass={featured ? 'h-36 w-36 sm:h-44 sm:w-44' : compact ? 'h-16 w-16' : 'h-24 w-24'}
-            textClass={featured ? 'text-6xl' : compact ? 'text-2xl' : 'text-4xl'}
-          />
+          <SpeakerBackdrop active={isSpeaking} featured={featured} />
+          <div style={isSpeaking ? { animation: 'speakerAvatar 1.25s ease-in-out infinite' } : undefined}>
+            <AvatarBadge
+              name={label}
+              picture={picture}
+              sizeClass={featured ? 'h-36 w-36 sm:h-44 sm:w-44' : compact ? 'h-16 w-16' : 'h-24 w-24'}
+              textClass={featured ? 'text-6xl' : compact ? 'text-2xl' : 'text-4xl'}
+            />
+          </div>
         </div>
       )}
 
@@ -355,6 +380,20 @@ export default function VideoGrid({
 
   return (
     <div className="w-full h-full flex items-center justify-center p-4 overflow-y-auto">
+      <style>{`
+        @keyframes speakerPulse {
+          0%, 100% { transform: scale(0.92); opacity: 0.35; }
+          50% { transform: scale(1.08); opacity: 0.9; }
+        }
+        @keyframes speakerAvatar {
+          0%, 100% { transform: scale(0.98); }
+          50% { transform: scale(1.05); }
+        }
+        @keyframes speakerGlow {
+          0%, 100% { transform: scale(0.96); opacity: 0.2; }
+          50% { transform: scale(1.14); opacity: 0.55; }
+        }
+      `}</style>
       {remoteTiles.map((tile) => (
         <RemoteAudio key={`audio-${tile.id}`} stream={tile.stream} />
       ))}
