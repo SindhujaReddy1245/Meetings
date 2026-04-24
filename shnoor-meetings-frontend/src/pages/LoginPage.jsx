@@ -70,7 +70,7 @@ export default function LoginPage() {
 
         if (!isAllowedShnoorEmail(user?.email || '')) {
           clearStoredUser();
-          alert('there is restricted accsess for only shnoor mail id please enter correct mail id');
+          alert('Invalid email received from Google login.');
           window.history.replaceState({}, document.title, '/login');
           return;
         }
@@ -160,12 +160,12 @@ export default function LoginPage() {
     const normalizedEmail = email.trim().toLowerCase();
 
     if (!normalizedEmail) {
-      alert('Enter your @shnoor.com email');
+      alert('Enter your email');
       return;
     }
 
     if (!isAllowedShnoorEmail(normalizedEmail)) {
-      alert('there is restricted accsess for only shnoor mail id please enter correct mail id');
+      alert('Enter a valid email address');
       return;
     }
 
@@ -192,7 +192,7 @@ export default function LoginPage() {
         <form onSubmit={handleLogin} className="flex flex-col gap-4">
           <input
             type="email"
-            placeholder="Enter your @shnoor.com email"
+            placeholder="Enter your email"
             value={email}
             required
             onChange={(event) => setEmail(event.target.value)}
@@ -235,7 +235,7 @@ export default function LoginPage() {
         <div className="mt-6 rounded-2xl border border-indigo-100 bg-white/80 p-4 shadow-sm">
           <h2 className="text-sm font-semibold text-gray-800">Your Calendar Patch</h2>
           <p className="mt-1 text-xs text-gray-500">
-            Enter your @shnoor.com email to see your saved meetings, personal items, and reminders.
+            Enter your email to see your saved meetings, personal items, and reminders.
           </p>
 
           <div className="mt-4 space-y-3">

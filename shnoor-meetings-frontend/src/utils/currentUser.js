@@ -1,5 +1,6 @@
 export function isAllowedShnoorEmail(email) {
-  return `${email || ''}`.trim().toLowerCase().endsWith('@shnoor.com');
+  const normalizedEmail = `${email || ''}`.trim().toLowerCase();
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail);
 }
 
 function parseStoredUser() {
@@ -29,7 +30,7 @@ export function getAllowedStoredUser() {
     return null;
   }
 
-  if (!isAllowedShnoorEmail(user.email)) {
+  if (!isAllowedShnoorEmail(user.email || '')) {
     clearStoredUser();
     return null;
   }
