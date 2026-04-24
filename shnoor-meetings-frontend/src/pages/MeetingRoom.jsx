@@ -8,11 +8,20 @@ import { getCurrentUser } from '../utils/currentUser';
 
 function ParticipantAvatar({ name, picture, className = 'w-8 h-8', textClass = 'text-xs' }) {
   const initial = (name || 'P').charAt(0).toUpperCase();
+  const [imageFailed, setImageFailed] = useState(false);
+  const normalizedPicture = `${picture || ''}`.trim();
+  const shouldShowImage = Boolean(normalizedPicture && !imageFailed);
 
   return (
     <div className={`${className} rounded-full overflow-hidden bg-blue-600 flex items-center justify-center text-white font-bold flex-shrink-0`}>
-      {picture ? (
-        <img src={picture} alt={name || 'Participant'} className="w-full h-full object-cover" />
+      {shouldShowImage ? (
+        <img
+          src={normalizedPicture}
+          alt={name || 'Participant'}
+          className="w-full h-full object-cover"
+          referrerPolicy="no-referrer"
+          onError={() => setImageFailed(true)}
+        />
       ) : (
         <span className={textClass}>{initial}</span>
       )}

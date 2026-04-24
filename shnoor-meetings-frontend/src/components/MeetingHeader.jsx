@@ -6,11 +6,20 @@ import { getMeetingPreferences, getTranslator, saveMeetingPreferences } from '..
 
 function ProfileAvatar({ user, sizeClass = 'w-10 h-10', textClass = 'text-sm' }) {
   const initial = (user?.name || user?.email || 'U').charAt(0).toUpperCase();
+  const [imageFailed, setImageFailed] = useState(false);
+  const picture = `${user?.picture || ''}`.trim();
+  const shouldShowImage = Boolean(picture && !imageFailed);
 
   return (
     <div className={`${sizeClass} rounded-full overflow-hidden bg-emerald-600 flex items-center justify-center text-white`}>
-      {user?.picture ? (
-        <img src={user.picture} alt={user.name || 'User'} className="w-full h-full object-cover" />
+      {shouldShowImage ? (
+        <img
+          src={picture}
+          alt={user?.name || 'User'}
+          className="w-full h-full object-cover"
+          referrerPolicy="no-referrer"
+          onError={() => setImageFailed(true)}
+        />
       ) : (
         <span className={`font-semibold ${textClass}`}>{initial}</span>
       )}

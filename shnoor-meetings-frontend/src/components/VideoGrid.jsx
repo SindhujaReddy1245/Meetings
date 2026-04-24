@@ -24,6 +24,7 @@ function AvatarBadge({ name, picture, sizeClass = 'h-24 w-24', textClass = 'text
           src={picture}
           alt={name || 'Participant'}
           className="h-full w-full object-cover"
+          referrerPolicy="no-referrer"
           onError={() => setImageFailed(true)}
         />
       ) : (
@@ -164,9 +165,10 @@ function VideoPlayer({
         featured ? 'w-full h-full rounded-3xl bg-black' : 'w-full aspect-video rounded-2xl bg-gray-800'
       } ${
         isSpeaking
-          ? 'border-emerald-300 shadow-[0_0_0_4px_rgba(52,211,153,0.28),0_0_35px_rgba(52,211,153,0.25)] scale-[1.01]'
+          ? 'border-emerald-300 shadow-[0_0_0_4px_rgba(52,211,153,0.28),0_0_35px_rgba(52,211,153,0.25)]'
           : 'border-gray-700/50 shadow-2xl'
       }`}
+      style={isSpeaking ? { animation: 'speakerTile 1.15s ease-in-out infinite' } : undefined}
     >
       {shouldShowVideo ? (
         <video
@@ -392,6 +394,10 @@ export default function VideoGrid({
         @keyframes speakerGlow {
           0%, 100% { transform: scale(0.96); opacity: 0.2; }
           50% { transform: scale(1.14); opacity: 0.55; }
+        }
+        @keyframes speakerTile {
+          0%, 100% { transform: scale(0.99); }
+          50% { transform: scale(1.025); }
         }
       `}</style>
       {remoteTiles.map((tile) => (
