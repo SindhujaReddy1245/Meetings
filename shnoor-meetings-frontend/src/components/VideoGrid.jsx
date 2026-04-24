@@ -149,19 +149,43 @@ function VideoPlayer({
   compact = false,
 }) {
   const videoRef = useRef(null);
+  const fallbackTimerRef = useRef(null);
+  const [hasRenderedVideoFrame, setHasRenderedVideoFrame] = useState(false);
   const loggedInUser = getCurrentUser();
   const resolvedPicture = isLocal ? (picture || loggedInUser?.picture || null) : picture;
   const resolvedLabel = isLocal ? (label || loggedInUser?.name || loggedInUser?.email || 'You') : label;
-  const shouldShowVideo = Boolean(isVideoEnabled) && hasUsableVideo(stream);
+  const hasLiveVideoTrack = hasUsableVideo(stream);
+  const shouldShowVideo = Boolean(isVideoEnabled) && hasLiveVideoTrack && hasRenderedVideoFrame;
 
   useEffect(() => {
+    setHasRenderedVideoFrame(false);
+
     if (videoRef.current && stream) {
       videoRef.current.srcObject = stream;
       videoRef.current.play().catch((error) => {
         console.warn('Video autoplay failed for stream', error);
       });
+
+      if (Boolean(isVideoEnabled) && hasLiveVideoTrack) {
+        fallbackTimerRef.current = window.setTimeout(() => {
+          const element = videoRef.current;
+          if (!element) {
+            return;
+          }
+
+          const hasDimensions = element.videoWidth > 0 && element.videoHeight > 0;
+          setHasRenderedVideoFrame(hasDimensions);
+        }, 900);
+      }
     }
-  }, [stream]);
+
+    return () => {
+      if (fallbackTimerRef.current) {
+        window.clearTimeout(fallbackTimerRef.current);
+        fallbackTimerRef.current = null;
+      }
+    };
+  }, [hasLiveVideoTrack, isVideoEnabled, stream]);
 
   return (
     <div
@@ -180,6 +204,8 @@ function VideoPlayer({
           autoPlay
           playsInline
           muted={isLocal}
+          onLoadedData={() => setHasRenderedVideoFrame(true)}
+          onCanPlay={() => setHasRenderedVideoFrame(true)}
           className={`w-full h-full ${featured ? 'object-contain bg-black' : 'object-cover'} ${isLocal ? 'transform -scale-x-100' : ''}`}
         />
       ) : (
