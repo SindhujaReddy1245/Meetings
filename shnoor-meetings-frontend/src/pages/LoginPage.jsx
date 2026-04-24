@@ -70,7 +70,7 @@ export default function LoginPage() {
 
         if (!isAllowedShnoorEmail(user?.email || '')) {
           clearStoredUser();
-          alert('this only works for shnoor mail ids');
+          alert('there is restricted accsess for only shnoor mail id please enter correct mail id');
           window.history.replaceState({}, document.title, '/login');
           return;
         }
@@ -165,7 +165,7 @@ export default function LoginPage() {
     }
 
     if (!isAllowedShnoorEmail(normalizedEmail)) {
-      alert('this only works for shnoor mail ids');
+      alert('there is restricted accsess for only shnoor mail id please enter correct mail id');
       return;
     }
 

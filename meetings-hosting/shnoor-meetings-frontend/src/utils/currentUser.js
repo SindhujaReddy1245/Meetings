@@ -1,3 +1,7 @@
+export function isAllowedShnoorEmail(email) {
+  return `${email || ''}`.trim().toLowerCase().endsWith('@shnoor.com');
+}
+
 function parseStoredUser() {
   try {
     return JSON.parse(localStorage.getItem('user') || 'null');
@@ -10,6 +14,26 @@ function parseStoredUser() {
 function persistUser(user) {
   localStorage.setItem('user', JSON.stringify(user));
   window.dispatchEvent(new Event('storage'));
+  return user;
+}
+
+export function clearStoredUser() {
+  localStorage.removeItem('user');
+  window.dispatchEvent(new Event('storage'));
+}
+
+export function getAllowedStoredUser() {
+  const user = parseStoredUser();
+
+  if (!user) {
+    return null;
+  }
+
+  if (!isAllowedShnoorEmail(user.email)) {
+    clearStoredUser();
+    return null;
+  }
+
   return user;
 }
 
@@ -29,5 +53,5 @@ export function ensureFrontendUserId(user) {
 }
 
 export function getCurrentUser() {
-  return ensureFrontendUserId(parseStoredUser());
+  return ensureFrontendUserId(getAllowedStoredUser());
 }
