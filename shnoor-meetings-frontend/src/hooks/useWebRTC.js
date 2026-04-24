@@ -1,6 +1,8 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import {
+  clearPreJoinStream,
   closeCallHistoryEntry,
+  consumePreJoinStream,
   getPreJoinMediaState,
   getPreferredMediaConstraints,
   savePreJoinMediaState,
@@ -390,15 +392,6 @@ export function useWebRTC(roomId, options = {}) {
     syncParticipantState();
   }, [createPeerConnection, sendSignalingMessage, startSessionTracking, syncParticipantState]);
 
-  const shouldInitiateOffer = useCallback((peerId) => {
-    if (!peerId || peerId === clientId.current) {
-      return false;
-    }
-
-    // Deterministic initiator selection prevents dual-offer glare.
-    return String(clientId.current).localeCompare(String(peerId)) < 0;
-  }, []);
-
   const handleSignalingData = useCallback(async (data, stream) => {
     const { type, sender, target } = data;
     const peerId = sender || data.client_id;
@@ -413,12 +406,13 @@ export function useWebRTC(roomId, options = {}) {
 
     switch (type) {
       case 'user-joined': {
-        if (!stream || !shouldInitiateOffer(peerId)) {
+        if (!stream) {
           return;
         }
         await createAndSendOffer(peerId, stream, {
           name: data.name,
           role: data.role,
+          picture: data.picture,
         });
         break;
       }
@@ -575,17 +569,6 @@ export function useWebRTC(roomId, options = {}) {
             return nextMetadata;
           });
 
-          if (stream) {
-            for (const participant of data.participants) {
-              if (!participant?.id || participant.id === clientId.current) {
-                continue;
-              }
-
-              if (!peerConnections.current[participant.id] && shouldInitiateOffer(participant.id)) {
-                await createAndSendOffer(participant.id, stream, participant);
-              }
-            }
-          }
         }
         break;
 
@@ -640,7 +623,6 @@ export function useWebRTC(roomId, options = {}) {
     flushPendingIceCandidates,
     roomId,
     sendSignalingMessage,
-    shouldInitiateOffer,
   ]);
 
   useEffect(() => {
@@ -681,12 +663,18 @@ export function useWebRTC(roomId, options = {}) {
       try {
         if (acquireMedia) {
           try {
-            const constraints = getPreferredMediaConstraints();
-            const wantsAudio = constraints.audio !== false;
-            const wantsVideo = constraints.video !== false;
+            const cachedStream = consumePreJoinStream(roomId);
 
-            if (wantsAudio || wantsVideo) {
-              stream = await navigator.mediaDevices.getUserMedia(constraints);
+            if (cachedStream) {
+              stream = cachedStream;
+            } else {
+              const constraints = getPreferredMediaConstraints();
+              const wantsAudio = constraints.audio !== false;
+              const wantsVideo = constraints.video !== false;
+
+              if (wantsAudio || wantsVideo) {
+                stream = await navigator.mediaDevices.getUserMedia(constraints);
+              }
             }
 
             const audioTrack = stream.getAudioTracks()[0];
@@ -778,6 +766,7 @@ export function useWebRTC(roomId, options = {}) {
         stream?.getTracks().forEach((track) => track.stop());
       });
       activeStreamsRef.current = [];
+      clearPreJoinStream(roomId);
 
       Object.keys(activeSessionIdsRef.current).forEach((participantId) => {
         endSessionTracking(participantId);
