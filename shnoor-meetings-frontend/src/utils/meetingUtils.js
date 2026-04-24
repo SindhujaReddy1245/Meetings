@@ -1,5 +1,6 @@
 const MEETING_PREFERENCES_KEY = 'shnoor_meeting_preferences';
 const CALL_HISTORY_KEY = 'shnoor_call_history';
+const PREJOIN_STREAMS = new Map();
 
 const defaultPreferences = {
   microphoneId: 'default',
@@ -241,4 +242,30 @@ export function savePreJoinMediaState(roomId, nextState) {
   };
 
   sessionStorage.setItem(`meeting_prejoin_media_${roomId}`, JSON.stringify(mergedState));
+}
+
+export function cachePreJoinStream(roomId, stream) {
+  if (!roomId || !stream) {
+    return;
+  }
+
+  PREJOIN_STREAMS.set(roomId, stream);
+}
+
+export function consumePreJoinStream(roomId) {
+  if (!roomId) {
+    return null;
+  }
+
+  const stream = PREJOIN_STREAMS.get(roomId) || null;
+  PREJOIN_STREAMS.delete(roomId);
+  return stream;
+}
+
+export function clearPreJoinStream(roomId) {
+  if (!roomId) {
+    return;
+  }
+
+  PREJOIN_STREAMS.delete(roomId);
 }

@@ -8,9 +8,7 @@ function getDisplayInitial(name = 'P') {
 
 function hasUsableVideo(stream) {
   return Boolean(
-    stream?.getVideoTracks?.().some((track) => (
-      track.readyState === 'live' && track.muted !== true
-    ))
+    stream?.getVideoTracks?.().some((track) => track.readyState === 'live')
   );
 }
 
@@ -149,41 +147,27 @@ function VideoPlayer({
   compact = false,
 }) {
   const videoRef = useRef(null);
-  const fallbackTimerRef = useRef(null);
-  const [hasRenderedVideoFrame, setHasRenderedVideoFrame] = useState(false);
+  const [videoReady, setVideoReady] = useState(false);
   const loggedInUser = getCurrentUser();
   const resolvedPicture = isLocal ? (picture || loggedInUser?.picture || null) : picture;
   const resolvedLabel = isLocal ? (label || loggedInUser?.name || loggedInUser?.email || 'You') : label;
   const hasLiveVideoTrack = hasUsableVideo(stream);
-  const shouldShowVideo = Boolean(isVideoEnabled) && hasLiveVideoTrack && hasRenderedVideoFrame;
+  const shouldShowVideo = Boolean(isVideoEnabled) && hasLiveVideoTrack;
 
   useEffect(() => {
-    setHasRenderedVideoFrame(false);
+    setVideoReady(false);
 
     if (videoRef.current && stream) {
-      videoRef.current.srcObject = stream;
-      videoRef.current.play().catch((error) => {
+      const element = videoRef.current;
+      element.srcObject = stream;
+      element.defaultMuted = true;
+      element.muted = true;
+      element.playsInline = true;
+      element.play().then(() => {
+        setVideoReady(true);
+      }).catch((error) => {
         console.warn('Video autoplay failed for stream', error);
       });
-
-      if (Boolean(isVideoEnabled) && hasLiveVideoTrack) {
-        fallbackTimerRef.current = window.setTimeout(() => {
-          const element = videoRef.current;
-          if (!element) {
-            return;
-          }
-
-          const hasDimensions = element.videoWidth > 0 && element.videoHeight > 0;
-          setHasRenderedVideoFrame(hasDimensions);
-        }, 900);
-      }
-    }
-
-    return () => {
-      if (fallbackTimerRef.current) {
-        window.clearTimeout(fallbackTimerRef.current);
-        fallbackTimerRef.current = null;
-      }
     };
   }, [hasLiveVideoTrack, isVideoEnabled, stream]);
 
@@ -204,9 +188,11 @@ function VideoPlayer({
           autoPlay
           playsInline
           muted
-          onLoadedData={() => setHasRenderedVideoFrame(true)}
-          onCanPlay={() => setHasRenderedVideoFrame(true)}
+          onLoadedMetadata={() => setVideoReady(true)}
+          onLoadedData={() => setVideoReady(true)}
+          onCanPlay={() => setVideoReady(true)}
           className={`w-full h-full ${featured ? 'object-contain bg-black' : 'object-cover'} ${isLocal ? 'transform -scale-x-100' : ''}`}
+          style={{ visibility: videoReady ? 'visible' : 'visible' }}
         />
       ) : (
         <div className="absolute inset-0 flex items-center justify-center bg-[radial-gradient(circle_at_top,#31445f_0%,#1f2d44_45%,#142033_100%)]">
