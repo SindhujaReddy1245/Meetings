@@ -185,7 +185,9 @@ export default function LobbyPage() {
     const handleAdmitted = (e) => {
       if (e.detail.roomId === roomId) {
         setIsWaiting(false);
-        joinMeetingRef.current?.();
+        window.setTimeout(() => {
+          joinMeetingRef.current?.();
+        }, 150);
       }
     };
     const handleDenied = (e) => {
@@ -214,13 +216,16 @@ export default function LobbyPage() {
     admitParticipant(participantId);
 
     if (!sessionStorage.getItem(`meeting_admitted_${roomId}`)) {
-      joinMeetingRef.current?.();
+      window.setTimeout(() => {
+        joinMeetingRef.current?.();
+      }, 200);
     }
   };
 
   const joinMeeting = () => {
     const trimmedName = participantName.trim() || currentUser?.name || (resolvedRole === 'host' ? 'Host' : 'Guest');
     sessionStorage.setItem(`meeting_name_${roomId}`, trimmedName);
+    sessionStorage.setItem(`meeting_role_${roomId}`, resolvedRole === 'host' || shouldShowHostControls ? 'host' : 'participant');
     sessionStorage.setItem(`meeting_admitted_${roomId}`, 'true');
     savePreJoinMediaState(roomId, { audioEnabled: isMicOn, videoEnabled: isVideoOn });
     if (stream) {

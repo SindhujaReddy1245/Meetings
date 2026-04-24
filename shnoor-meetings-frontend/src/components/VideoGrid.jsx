@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Maximize2, MicOff, Minimize2, X } from 'lucide-react';
+import { getCurrentUser } from '../utils/currentUser';
 
 function getDisplayInitial(name = 'P') {
   return `${name}`.trim().charAt(0).toUpperCase() || 'P';
@@ -18,7 +19,7 @@ function AvatarBadge({ name, picture, sizeClass = 'h-24 w-24', textClass = 'text
   const shouldShowImage = Boolean(picture && !imageFailed);
 
   return (
-    <div className={`${sizeClass} overflow-hidden rounded-full border border-white/30 bg-sky-700/90 shadow-xl`}>
+    <div className={`${sizeClass} overflow-hidden rounded-full border-2 border-white/60 bg-sky-700/90 shadow-xl`}>
       {shouldShowImage ? (
         <img
           src={picture}
@@ -113,7 +114,7 @@ function useSpeakingParticipants(tiles) {
           }
 
           const rms = Math.sqrt(total / sampleBuffer.length);
-          return rms > 0.045;
+          return rms > 0.025;
         })
         .map(({ id }) => id)
         .sort();
@@ -148,16 +149,43 @@ function VideoPlayer({
   compact = false,
 }) {
   const videoRef = useRef(null);
-  const shouldShowVideo = Boolean(isVideoEnabled) && hasUsableVideo(stream);
+  const fallbackTimerRef = useRef(null);
+  const [hasRenderedVideoFrame, setHasRenderedVideoFrame] = useState(false);
+  const loggedInUser = getCurrentUser();
+  const resolvedPicture = isLocal ? (picture || loggedInUser?.picture || null) : picture;
+  const resolvedLabel = isLocal ? (label || loggedInUser?.name || loggedInUser?.email || 'You') : label;
+  const hasLiveVideoTrack = hasUsableVideo(stream);
+  const shouldShowVideo = Boolean(isVideoEnabled) && hasLiveVideoTrack && hasRenderedVideoFrame;
 
   useEffect(() => {
+    setHasRenderedVideoFrame(false);
+
     if (videoRef.current && stream) {
       videoRef.current.srcObject = stream;
       videoRef.current.play().catch((error) => {
         console.warn('Video autoplay failed for stream', error);
       });
+
+      if (Boolean(isVideoEnabled) && hasLiveVideoTrack) {
+        fallbackTimerRef.current = window.setTimeout(() => {
+          const element = videoRef.current;
+          if (!element) {
+            return;
+          }
+
+          const hasDimensions = element.videoWidth > 0 && element.videoHeight > 0;
+          setHasRenderedVideoFrame(hasDimensions);
+        }, 900);
+      }
     }
-  }, [stream]);
+
+    return () => {
+      if (fallbackTimerRef.current) {
+        window.clearTimeout(fallbackTimerRef.current);
+        fallbackTimerRef.current = null;
+      }
+    };
+  }, [hasLiveVideoTrack, isVideoEnabled, stream]);
 
   return (
     <div
@@ -175,16 +203,21 @@ function VideoPlayer({
           ref={videoRef}
           autoPlay
           playsInline
-          muted={isLocal}
+          muted
+          onLoadedData={() => setHasRenderedVideoFrame(true)}
+          onCanPlay={() => setHasRenderedVideoFrame(true)}
           className={`w-full h-full ${featured ? 'object-contain bg-black' : 'object-cover'} ${isLocal ? 'transform -scale-x-100' : ''}`}
         />
       ) : (
-        <div className="absolute inset-0 flex items-center justify-center bg-[radial-gradient(circle_at_top,#1f5f8b_0%,#174d76_40%,#103754_100%)]">
+        <div className="absolute inset-0 flex items-center justify-center bg-[radial-gradient(circle_at_top,#31445f_0%,#1f2d44_45%,#142033_100%)]">
           <SpeakerBackdrop active={isSpeaking} featured={featured} />
-          <div style={isSpeaking ? { animation: 'speakerAvatar 1.25s ease-in-out infinite' } : undefined}>
+          <div
+            className="relative z-10"
+            style={isSpeaking ? { animation: 'speakerAvatar 1.25s ease-in-out infinite' } : undefined}
+          >
             <AvatarBadge
-              name={label}
-              picture={picture}
+              name={resolvedLabel}
+              picture={resolvedPicture}
               sizeClass={featured ? 'h-36 w-36 sm:h-44 sm:w-44' : compact ? 'h-16 w-16' : 'h-24 w-24'}
               textClass={featured ? 'text-6xl' : compact ? 'text-2xl' : 'text-4xl'}
             />
@@ -192,14 +225,23 @@ function VideoPlayer({
         </div>
       )}
 
+      <div className="absolute top-4 left-4 z-10">
+        <AvatarBadge
+          name={resolvedLabel}
+          picture={resolvedPicture}
+          sizeClass={compact ? 'h-10 w-10' : 'h-12 w-12'}
+          textClass={compact ? 'text-base' : 'text-lg'}
+        />
+      </div>
+
       {!isAudioEnabled && (
-        <div className="absolute top-4 left-4 rounded-full bg-black/55 p-2 text-white shadow-lg">
+        <div className="absolute top-4 right-4 rounded-full bg-black/55 p-2 text-white shadow-lg z-10">
           <MicOff size={compact ? 14 : 16} />
         </div>
       )}
 
       {isHandRaised && (
-        <div className="absolute top-4 right-4 bg-yellow-500 text-white p-2 rounded-full shadow-lg border-2 border-yellow-400 z-10">
+        <div className="absolute top-20 right-4 bg-yellow-500 text-white p-2 rounded-full shadow-lg border-2 border-yellow-400 z-10">
           <span className="text-xs font-bold">RH</span>
         </div>
       )}
@@ -208,7 +250,7 @@ function VideoPlayer({
         <div className={`bg-black/60 backdrop-blur-md rounded-lg text-white font-semibold tracking-wide border border-white/10 shadow-lg ${
           compact ? 'px-3 py-1 text-xs' : 'px-4 py-1.5 text-sm'
         }`}>
-          {label}
+          {resolvedLabel}
         </div>
       </div>
 
