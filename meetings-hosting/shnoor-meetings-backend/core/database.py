@@ -9,6 +9,7 @@ load_dotenv()
 
 # We use the Connection Pooling URL from Supabase (Defaults to Port 6543)
 SUPABASE_DB_URL = os.getenv("SUPABASE_DB_URL")
+DEFAULT_REMINDER_OFFSET_MINUTES = int((os.getenv("CALENDAR_REMINDER_OFFSET_MINUTES") or "5").strip() or "5")
 
 # Global connection pool
 db_pool = None
@@ -394,6 +395,12 @@ def _ensure_tables():
                     category TEXT NOT NULL DEFAULT 'meetings',
                     room_id UUID NULL
                 )
+                """
+            )
+            cursor.execute(
+                f"""
+                ALTER TABLE calendar_events
+                ADD COLUMN IF NOT EXISTS reminder_offset_minutes INTEGER NOT NULL DEFAULT {DEFAULT_REMINDER_OFFSET_MINUTES}
                 """
             )
             cursor.execute(

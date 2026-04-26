@@ -1,3 +1,4 @@
+import os
 from datetime import datetime
 from typing import List, Optional
 from fastapi import APIRouter, HTTPException, Query
@@ -15,6 +16,8 @@ router = APIRouter(
     prefix="/api/calendar",
     tags=["Calendar"]
 )
+
+DEFAULT_REMINDER_OFFSET_MINUTES = int((os.getenv("CALENDAR_REMINDER_OFFSET_MINUTES") or "5").strip() or "5")
 
 
 def normalize_event_category(category: Optional[str]) -> str:
@@ -41,6 +44,7 @@ class CalendarEvent(BaseModel):
     end_time: datetime
     category: str = "meetings"
     room_id: Optional[str] = None
+    reminder_offset_minutes: int = DEFAULT_REMINDER_OFFSET_MINUTES
 
 class CreateEventResponse(BaseModel):
     id: str
@@ -110,7 +114,8 @@ async def get_events(
             start_time=row["start_time"],
             end_time=row["end_time"],
             category=normalize_event_category(row["category"]),
-            room_id=row["room_id"]
+            room_id=row["room_id"],
+            reminder_offset_minutes=row.get("reminder_offset_minutes") or DEFAULT_REMINDER_OFFSET_MINUTES,
         ) for row in rows
     ]
     return events
@@ -129,6 +134,7 @@ async def create_event(event: CalendarEvent):
         )
         category = normalize_event_category(event.category)
         room_id = normalize_uuid_or_none(event.room_id)
+        reminder_offset_minutes = event.reminder_offset_minutes or DEFAULT_REMINDER_OFFSET_MINUTES
         if room_id:
             ensure_meeting_record(room_id, host_user_id=user_id, title=event.title)
         conn = get_db_connection()
@@ -138,10 +144,10 @@ async def create_event(event: CalendarEvent):
         cursor = get_dict_cursor(conn)
         cursor.execute(
             """
-            INSERT INTO calendar_events (id, user_id, title, description, start_time, end_time, category, room_id)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+            INSERT INTO calendar_events (id, user_id, title, description, start_time, end_time, category, room_id, reminder_offset_minutes)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
             """,
-            (event_id, user_id, event.title, event.description, event.start_time, event.end_time, category, room_id)
+            (event_id, user_id, event.title, event.description, event.start_time, event.end_time, category, room_id, reminder_offset_minutes)
         )
         conn.commit()
     except Exception as e:
@@ -192,11 +198,12 @@ async def update_event(id: str, event: CalendarEvent):
         )
         category = normalize_event_category(event.category)
         room_id = normalize_uuid_or_none(event.room_id)
+        reminder_offset_minutes = event.reminder_offset_minutes or DEFAULT_REMINDER_OFFSET_MINUTES
         if room_id:
             ensure_meeting_record(room_id, host_user_id=event_user_id, title=event.title)
         cursor.execute(
-            "UPDATE calendar_events SET user_id = %s, title = %s, description = %s, start_time = %s, end_time = %s, category = %s, room_id = %s WHERE id = %s",
-            (event_user_id, event.title, event.description, event.start_time, event.end_time, category, room_id, id)
+            "UPDATE calendar_events SET user_id = %s, title = %s, description = %s, start_time = %s, end_time = %s, category = %s, room_id = %s, reminder_offset_minutes = %s WHERE id = %s",
+            (event_user_id, event.title, event.description, event.start_time, event.end_time, category, room_id, reminder_offset_minutes, id)
         )
         conn.commit()
         if cursor.rowcount == 0:

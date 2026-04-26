@@ -104,13 +104,43 @@ def _build_reminder_body(event: dict) -> str:
     event_start = _format_event_start(event.get("start_time"))
     offset_minutes = event.get("reminder_offset_minutes") or DEFAULT_REMINDER_OFFSET_MINUTES
 
+    room_id = event.get("room_id")
+    frontend_url = (os.getenv("FRONTEND_URL") or "http://localhost:5173").rstrip("/")
+    link_text = f"Join meeting here: {frontend_url}/meeting/{room_id}\n\n" if room_id else ""
+
     return (
         f"Hello,\n\n"
         f"You have a {event_category.lower()} scheduled in {offset_minutes} minutes.\n\n"
         f"Title: {event_title}\n"
         f"Date and time: {event_start}\n"
         f"Category: {event_category}\n\n"
+        f"{link_text}"
         f"Please be ready before it starts.\n\n"
+        f"Shnoor Meetings"
+    )
+
+
+def _build_scheduled_subject(event: dict) -> str:
+    category = (event.get("category") or "meeting").rstrip("s").capitalize()
+    return f"{category} Scheduled: {event.get('title') or 'Untitled'}"
+
+
+def _build_scheduled_body(event: dict) -> str:
+    event_title = event.get("title") or "Untitled"
+    event_category = ((event.get("category") or "meeting").rstrip("s")).capitalize()
+    event_start = _format_event_start(event.get("start_time"))
+    
+    room_id = event.get("room_id")
+    frontend_url = (os.getenv("FRONTEND_URL") or "http://localhost:5173").rstrip("/")
+    link_text = f"Join meeting here: {frontend_url}/meeting/{room_id}\n\n" if room_id else ""
+
+    return (
+        f"Hello,\n\n"
+        f"Your {event_category.lower()} has been successfully scheduled.\n\n"
+        f"Title: {event_title}\n"
+        f"Date and time: {event_start}\n"
+        f"Category: {event_category}\n\n"
+        f"{link_text}"
         f"Shnoor Meetings"
     )
 
@@ -119,10 +149,10 @@ def send_calendar_reminder_email(event: dict):
     sent = False
 
     if _smtp_is_configured():
-        _send_calendar_reminder_via_smtp(event)
+        _send_email_via_smtp(event, _build_reminder_subject(event), _build_reminder_body(event))
         sent = True
     elif _resend_is_configured():
-        _send_calendar_reminder_via_resend(event)
+        _send_email_via_resend(event, _build_reminder_subject(event), _build_reminder_body(event))
         sent = True
 
     if not sent:
@@ -135,17 +165,38 @@ def send_calendar_reminder_email(event: dict):
         )
 
 
-def _send_calendar_reminder_via_smtp(event: dict):
+def send_meeting_scheduled_email(event: dict):
+    sent = False
+
+    if _smtp_is_configured():
+        _send_email_via_smtp(event, _build_scheduled_subject(event), _build_scheduled_body(event))
+        sent = True
+    elif _resend_is_configured():
+        _send_email_via_resend(event, _build_scheduled_subject(event), _build_scheduled_body(event))
+        sent = True
+
+    if not sent:
+        missing_smtp = _get_missing_smtp_keys()
+        missing_resend = _get_missing_resend_keys()
+        raise RuntimeError(
+            "No email provider configured. "
+            f"Missing SMTP keys: {', '.join(missing_smtp) or 'none'}; "
+            f"Missing Resend keys: {', '.join(missing_resend) or 'none'}."
+        )
+
+
+def _send_email_via_smtp(event: dict, subject: str, body: str):
     settings = _get_smtp_settings()
     recipient_email = (event.get("user_email") or "").strip()
-    if not recipient_email:
+    recipient_emails = [e.strip() for e in recipient_email.split(",") if e.strip()]
+    if not recipient_emails:
         raise ValueError("Calendar event has no recipient email")
 
     message = EmailMessage()
-    message["Subject"] = _build_reminder_subject(event)
+    message["Subject"] = subject
     message["From"] = f"{settings['from_name']} <{settings['from_email']}>"
-    message["To"] = recipient_email
-    message.set_content(_build_reminder_body(event))
+    message["To"] = ", ".join(recipient_emails)
+    message.set_content(body)
 
     smtp_client = smtplib.SMTP_SSL if settings["use_ssl"] else smtplib.SMTP
     with smtp_client(settings["host"], settings["port"], timeout=settings["timeout_seconds"]) as server:
@@ -157,17 +208,18 @@ def _send_calendar_reminder_via_smtp(event: dict):
         server.send_message(message)
 
 
-def _send_calendar_reminder_via_resend(event: dict):
+def _send_email_via_resend(event: dict, subject: str, body: str):
     settings = _get_resend_settings()
     recipient_email = (event.get("user_email") or "").strip()
-    if not recipient_email:
+    recipient_emails = [e.strip() for e in recipient_email.split(",") if e.strip()]
+    if not recipient_emails:
         raise ValueError("Calendar event has no recipient email")
 
     payload = {
         "from": f"{settings['from_name']} <{settings['from_email']}>",
-        "to": [recipient_email],
-        "subject": _build_reminder_subject(event),
-        "text": _build_reminder_body(event),
+        "to": recipient_emails,
+        "subject": subject,
+        "text": body,
     }
 
     request = urllib.request.Request(
@@ -183,11 +235,11 @@ def _send_calendar_reminder_via_resend(event: dict):
     try:
         with urllib.request.urlopen(request, timeout=30) as response:
             if response.status >= 400:
-                body = response.read().decode("utf-8", errors="ignore")
-                raise RuntimeError(f"Resend API failed with status {response.status}: {body}")
+                body_resp = response.read().decode("utf-8", errors="ignore")
+                raise RuntimeError(f"Resend API failed with status {response.status}: {body_resp}")
     except urllib.error.HTTPError as exc:
-        body = exc.read().decode("utf-8", errors="ignore")
-        raise RuntimeError(f"Resend API error {exc.code}: {body}") from exc
+        body_resp = exc.read().decode("utf-8", errors="ignore")
+        raise RuntimeError(f"Resend API error {exc.code}: {body_resp}") from exc
 
 
 def process_pending_calendar_reminders():
@@ -213,6 +265,7 @@ def process_pending_calendar_reminders():
                 calendar_events.title,
                 calendar_events.category,
                 calendar_events.start_time,
+                calendar_events.room_id,
                 calendar_events.reminder_offset_minutes,
                 LOWER(BTRIM(COALESCE(calendar_events.recipient_email, users.email))) AS user_email
             FROM calendar_events

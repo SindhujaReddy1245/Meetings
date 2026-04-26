@@ -7,14 +7,8 @@ import CalendarSidebar from '../components/CalendarSidebar';
 import { MonthView, WeekView, DayView } from '../components/CalendarViews';
 import EventModal from '../components/EventModal';
 import { buildApiUrl } from '../utils/api';
+import { normalizeEventCategory } from '../utils/calendarEventUtils';
 import { getCurrentUser } from '../utils/currentUser';
-
-function normalizeEventCategory(category) {
-  const normalized = `${category || 'meetings'}`.trim().toLowerCase();
-  if (normalized === 'personal') return 'personal';
-  if (['reminder', 'reminders', 'remainder', 'remainders'].includes(normalized)) return 'reminders';
-  return 'meetings';
-}
 
 function getCalendarIdentityKey(currentUser) {
   return currentUser?.email?.trim().toLowerCase() || currentUser?.meetingUserId || 'guest';

@@ -1,18 +1,12 @@
 import { useState, useEffect } from 'react';
-import { X, Clock, AlignLeft, Video, Calendar } from 'lucide-react';
+import { X, Clock, AlignLeft, Video, Calendar, Copy } from 'lucide-react';
 import { format, addHours, startOfToday, isBefore } from 'date-fns';
 import { motion, AnimatePresence } from 'framer-motion';
-
-function normalizeEventCategory(category) {
-  const normalized = `${category || 'meetings'}`.trim().toLowerCase();
-  if (normalized === 'personal') {
-    return 'personal';
-  }
-  if (['reminder', 'reminders', 'remainder', 'remainders'].includes(normalized)) {
-    return 'reminders';
-  }
-  return 'meetings';
-}
+import {
+  buildMeetingLink,
+  getReminderOffsetMinutes,
+  normalizeEventCategory,
+} from '../utils/calendarEventUtils';
 
 function toLocalDateTimeInputValue(value) {
   if (!value) {
@@ -34,7 +28,12 @@ export default function EventModal({ isOpen, onClose, selectedDate, onSave, even
   const [startTime, setStartTime] = useState('');
   const [endTime, setEndTime] = useState('');
   const [category, setCategory] = useState(normalizeEventCategory(event?.category));
+  const [roomId, setRoomId] = useState(event?.room_id || '');
+  const [reminderOffsetMinutes, setReminderOffsetMinutes] = useState(5);
+  const [guestEmails, setGuestEmails] = useState(event?.guest_emails || []);
+  const [newGuestEmail, setNewGuestEmail] = useState('');
   const [validationMessage, setValidationMessage] = useState('');
+  const [copyMessage, setCopyMessage] = useState('');
 
   useEffect(() => {
     if (isOpen) {
@@ -44,7 +43,12 @@ export default function EventModal({ isOpen, onClose, selectedDate, onSave, even
         setStartTime(toLocalDateTimeInputValue(event.start_time));
         setEndTime(toLocalDateTimeInputValue(event.end_time));
         setCategory(normalizeEventCategory(event.category));
+        setRoomId(event.room_id || '');
+        setReminderOffsetMinutes(getReminderOffsetMinutes(event.reminder_offset_minutes));
+        setGuestEmails(event.guest_emails || []);
+        setNewGuestEmail('');
         setValidationMessage('');
+        setCopyMessage('');
       } else {
         setTitle('');
         setDescription('');
@@ -54,10 +58,17 @@ export default function EventModal({ isOpen, onClose, selectedDate, onSave, even
         setStartTime(format(start, "yyyy-MM-dd'T'HH:mm"));
         setEndTime(format(end, "yyyy-MM-dd'T'HH:mm"));
         setCategory('meetings');
+        setRoomId('');
+        setReminderOffsetMinutes(5);
+        setGuestEmails([]);
+        setNewGuestEmail('');
         setValidationMessage('');
+        setCopyMessage('');
       }
     }
   }, [isOpen, event, selectedDate]);
+
+  const meetingLink = category === 'meetings' ? buildMeetingLink(roomId) : '';
 
   const submitEvent = (nextCategory) => {
     const startDate = new Date(startTime);
@@ -75,6 +86,8 @@ export default function EventModal({ isOpen, onClose, selectedDate, onSave, even
 
     setValidationMessage('');
     const normalizedCategory = normalizeEventCategory(nextCategory);
+    const nextRoomId = normalizedCategory === 'meetings' ? (roomId || event?.room_id || crypto.randomUUID()) : null;
+
     onSave({
       id: event?.id || crypto.randomUUID(),
       title: title || '(No title)',
@@ -82,13 +95,54 @@ export default function EventModal({ isOpen, onClose, selectedDate, onSave, even
       start_time: startDate.toISOString(),
       end_time: endDate.toISOString(),
       category: normalizedCategory,
-      room_id: normalizedCategory === 'meetings' ? (event?.room_id || crypto.randomUUID()) : null,
+      room_id: nextRoomId,
+      reminder_offset_minutes: getReminderOffsetMinutes(reminderOffsetMinutes),
+      guest_emails: guestEmails,
     });
   };
 
   const handleSubmit = (e) => {
     e.preventDefault();
     submitEvent(category);
+  };
+
+  const handleGenerateMeetingLink = () => {
+    setCategory('meetings');
+    setRoomId((prev) => prev || event?.room_id || crypto.randomUUID());
+    setValidationMessage('');
+  };
+
+  const handleCopyMeetingLink = async () => {
+    if (!meetingLink) {
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(meetingLink);
+      setCopyMessage('Meeting link copied');
+      window.setTimeout(() => setCopyMessage(''), 2000);
+    } catch (error) {
+      console.error('Failed to copy generated meeting link:', error);
+      setCopyMessage('Copy failed');
+      window.setTimeout(() => setCopyMessage(''), 2000);
+    }
+  };
+
+  const handleAddGuestEmail = () => {
+    const trimmed = newGuestEmail.trim().toLowerCase();
+    if (trimmed && trimmed.includes('@')) {
+      if (!guestEmails.includes(trimmed)) {
+        setGuestEmails([...guestEmails, trimmed]);
+      }
+      setNewGuestEmail('');
+    } else {
+      setValidationMessage('Please enter a valid email address.');
+      window.setTimeout(() => setValidationMessage(''), 3000);
+    }
+  };
+
+  const handleRemoveGuestEmail = (emailToRemove) => {
+    setGuestEmails(guestEmails.filter(e => e !== emailToRemove));
   };
 
   return (
@@ -99,7 +153,7 @@ export default function EventModal({ isOpen, onClose, selectedDate, onSave, even
             initial={{ opacity: 0, scale: 0.95, y: 20 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.95, y: 20 }}
-            className="bg-white rounded-2xl shadow-2xl border border-gray-100 w-full max-w-lg overflow-hidden"
+            className="bg-white rounded-2xl shadow-2xl border border-gray-100 w-full max-w-lg overflow-hidden flex flex-col max-h-[90vh]"
           >
             <div className="flex items-center justify-between p-5 border-b border-gray-50 bg-white">
               <h3 className="text-xl font-semibold text-gray-800">
@@ -113,8 +167,8 @@ export default function EventModal({ isOpen, onClose, selectedDate, onSave, even
               </button>
             </div>
 
-            <form onSubmit={handleSubmit} className="p-8 space-y-8">
-              <div className="space-y-6">
+            <form onSubmit={handleSubmit} className="flex flex-col flex-1 overflow-hidden">
+              <div className="p-6 sm:p-8 space-y-6 overflow-y-auto flex-1">
                 <div className="space-y-1">
                   <label className="text-xs font-bold text-gray-400 uppercase tracking-widest ml-1">Event Title</label>
                   <input
@@ -153,16 +207,42 @@ export default function EventModal({ isOpen, onClose, selectedDate, onSave, even
 
                 <div className="flex items-center gap-6 text-gray-600">
                   <div><Video size={20} className="text-gray-400" /></div>
-                  <button 
-                    type="button"
-                    onClick={() => {
-                      setCategory('meetings');
-                      submitEvent('meetings');
-                    }}
-                    className="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-3 px-6 rounded-xl font-bold shadow-lg shadow-blue-100 transition-all flex items-center justify-center gap-3 transform active:scale-95"
-                  >
-                    Add Shnoor Meeting
-                  </button>
+                  <div className="flex-1 space-y-3">
+                    <button
+                      type="button"
+                      onClick={handleGenerateMeetingLink}
+                      className="w-full bg-blue-600 hover:bg-blue-700 text-white py-3 px-6 rounded-xl font-bold shadow-lg shadow-blue-100 transition-all flex items-center justify-center gap-3 transform active:scale-95"
+                    >
+                      {meetingLink ? 'Shnoor Meeting Link Ready' : 'Add Shnoor Meeting'}
+                    </button>
+                    {meetingLink && (
+                      <div className="rounded-xl border border-blue-100 bg-blue-50 px-4 py-3">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <div className="text-xs font-bold uppercase tracking-widest text-blue-600">
+                              Meeting Link
+                            </div>
+                            <div className="mt-1 break-all text-sm text-blue-900">
+                              {meetingLink}
+                            </div>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={handleCopyMeetingLink}
+                            className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white text-blue-700 shadow-sm transition hover:bg-blue-100"
+                            title="Copy meeting link"
+                          >
+                            <Copy size={16} />
+                          </button>
+                        </div>
+                        {copyMessage && (
+                          <div className="mt-2 text-xs font-medium text-blue-700">
+                            {copyMessage}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
                 </div>
 
                 <div className="flex items-start gap-6 text-gray-600">
@@ -178,6 +258,69 @@ export default function EventModal({ isOpen, onClose, selectedDate, onSave, even
                       <option value="meetings">Meetings</option>
                       <option value="reminders">Reminders</option>
                     </select>
+                  </div>
+                </div>
+
+                <div className="flex items-start gap-6 text-gray-600">
+                  <div className="mt-2"><Clock size={20} className="text-gray-400" /></div>
+                  <div className="flex-1 space-y-1">
+                    <label className="text-xs font-bold text-gray-400 uppercase tracking-widest ml-1">Reminder Timing</label>
+                    <select
+                      value={reminderOffsetMinutes}
+                      onChange={(e) => setReminderOffsetMinutes(Number.parseInt(e.target.value, 10))}
+                      className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 text-sm text-gray-700 focus:ring-2 focus:ring-blue-100 focus:border-blue-500 outline-none transition-all"
+                    >
+                      <option value={5}>5 minutes before</option>
+                      <option value={10}>10 minutes before</option>
+                      <option value={15}>15 minutes before</option>
+                      <option value={30}>30 minutes before</option>
+                      <option value={60}>1 hour before</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="flex items-start gap-6 text-gray-600">
+                  <div className="mt-2"><AlignLeft size={20} className="text-gray-400" /></div>
+                  <div className="flex-1 space-y-3">
+                    <label className="text-xs font-bold text-gray-400 uppercase tracking-widest ml-1">Guest Emails</label>
+                    <div className="flex gap-2">
+                      <input
+                        type="email"
+                        placeholder="Add guest email"
+                        value={newGuestEmail}
+                        onChange={(e) => setNewGuestEmail(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            handleAddGuestEmail();
+                          }
+                        }}
+                        className="flex-1 bg-gray-50 border border-gray-200 rounded-xl px-4 py-2.5 text-sm text-gray-700 focus:ring-2 focus:ring-blue-100 focus:border-blue-500 outline-none transition-all placeholder-gray-400"
+                      />
+                      <button
+                        type="button"
+                        onClick={handleAddGuestEmail}
+                        className="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-xl text-sm font-semibold shadow-md transition-colors"
+                      >
+                        Add Mails
+                      </button>
+                    </div>
+                    {guestEmails.length > 0 && (
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        {guestEmails.map(email => (
+                          <div key={email} className="flex items-center gap-2 bg-blue-50 text-blue-700 px-3 py-1.5 rounded-full text-xs font-medium border border-blue-100">
+                            {email}
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveGuestEmail(email)}
+                              className="text-blue-400 hover:text-blue-800 focus:outline-none"
+                            >
+                              <X size={14} />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 </div>
 
@@ -201,7 +344,7 @@ export default function EventModal({ isOpen, onClose, selectedDate, onSave, even
                 )}
               </div>
 
-              <div className="flex justify-end gap-3 pt-4 border-t border-gray-50">
+              <div className="flex justify-end gap-3 p-6 pt-4 border-t border-gray-100 bg-gray-50 shrink-0">
                 <button
                   type="button"
                   onClick={onClose}

@@ -9,14 +9,13 @@ import ChatbotPanel from '../components/ChatbotPanel';
 import { Bot } from 'lucide-react';
 import illustration from '../assets/illustration.png';
 import { buildApiUrl } from '../utils/api';
+import {
+  buildMeetingLink,
+  formatEventDurationLabel,
+  formatReminderOffsetLabel,
+  normalizeEventCategory,
+} from '../utils/calendarEventUtils';
 import { getCurrentUser } from '../utils/currentUser';
-
-function normalizeEventCategory(category) {
-  const normalized = `${category || 'meetings'}`.trim().toLowerCase();
-  if (normalized === 'personal') return 'personal';
-  if (['reminder', 'reminders', 'remainder', 'remainders'].includes(normalized)) return 'reminders';
-  return 'meetings';
-}
 
 function getCalendarIdentityKey(currentUser) {
   return currentUser?.email?.trim().toLowerCase() || currentUser?.meetingUserId || 'guest';
@@ -403,6 +402,31 @@ export default function LandingPage() {
                         <div className="text-xs font-medium text-blue-700 whitespace-nowrap">
                           {formatDistanceToNowStrict(new Date(meeting.start_time))} left
                         </div>
+                      </div>
+                      <div className="mt-3 grid gap-2 text-xs text-gray-600">
+                        <div>
+                          <span className="font-semibold text-gray-700">Time:</span>{' '}
+                          {format(new Date(meeting.start_time), 'h:mm a')} to {format(new Date(meeting.end_time), 'h:mm a')}
+                        </div>
+                        <div>
+                          <span className="font-semibold text-gray-700">Duration:</span>{' '}
+                          {formatEventDurationLabel(meeting.start_time, meeting.end_time)}
+                        </div>
+                        <div>
+                          <span className="font-semibold text-gray-700">Reminder:</span>{' '}
+                          {formatReminderOffsetLabel(meeting.reminder_offset_minutes)}
+                        </div>
+                        {meeting.room_id && (
+                          <div className="break-all">
+                            <span className="font-semibold text-gray-700">Meeting link:</span>{' '}
+                            <a
+                              href={buildMeetingLink(meeting.room_id)}
+                              className="text-blue-600 hover:underline"
+                            >
+                              {buildMeetingLink(meeting.room_id)}
+                            </a>
+                          </div>
+                        )}
                       </div>
                       <div className="mt-3 flex justify-end">
                         <button

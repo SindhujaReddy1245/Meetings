@@ -12,7 +12,7 @@ from core.database import (
     normalize_uuid_or_none,
     release_db_connection,
 )
-from core.reminders import process_pending_calendar_reminders, send_calendar_reminder_email
+from core.reminders import process_pending_calendar_reminders, send_calendar_reminder_email, send_meeting_scheduled_email
 
 router = APIRouter(
     prefix="/api/calendar",
@@ -40,6 +40,7 @@ class CalendarEvent(BaseModel):
     user_id: Optional[str] = None
     user_email: Optional[str] = None
     user_name: Optional[str] = None
+    guest_emails: Optional[List[str]] = []
     title: str
     description: Optional[str] = ""
     start_time: datetime
@@ -135,19 +136,26 @@ async def get_events(
     finally:
         release_db_connection(conn)
     
-    events = [
-        CalendarEvent(
-            id=row["id"],
-            user_id=row["user_id"],
-            user_email=row.get("user_email"),
-            title=row["title"],
-            description=row["description"],
-            start_time=row["start_time"],
-            end_time=row["end_time"],
-            category=normalize_event_category(row["category"]),
-            room_id=row["room_id"]
-        ) for row in rows
-    ]
+    events = []
+    for row in rows:
+        recipient_email = row.get("recipient_email") or row.get("user_email") or ""
+        emails_list = [e.strip() for e in recipient_email.split(",") if e.strip()]
+        host_email = emails_list[0] if emails_list else row.get("user_email")
+        guest_emails = emails_list[1:] if len(emails_list) > 1 else []
+        events.append(
+            CalendarEvent(
+                id=row["id"],
+                user_id=row["user_id"],
+                user_email=host_email,
+                guest_emails=guest_emails,
+                title=row["title"],
+                description=row["description"],
+                start_time=row["start_time"],
+                end_time=row["end_time"],
+                category=normalize_event_category(row["category"]),
+                room_id=row["room_id"]
+            )
+        )
     return events
 
 @router.post("/events", response_model=CreateEventResponse)
@@ -166,6 +174,18 @@ async def create_event(event: CalendarEvent):
         room_id = normalize_uuid_or_none(event.room_id)
         if room_id:
             ensure_meeting_record(room_id, host_user_id=user_id, title=event.title)
+
+        all_emails = []
+        host_email = (event.user_email or "").strip().lower()
+        if host_email:
+            all_emails.append(host_email)
+        if event.guest_emails:
+            for em in event.guest_emails:
+                normalized_em = (em or "").strip().lower()
+                if normalized_em and normalized_em not in all_emails:
+                    all_emails.append(normalized_em)
+        recipient_emails_str = ",".join(all_emails) if all_emails else None
+
         conn = get_db_connection()
         if not conn:
             raise HTTPException(status_code=500, detail="Database connection is unavailable")
@@ -179,7 +199,7 @@ async def create_event(event: CalendarEvent):
             (
                 event_id,
                 user_id,
-                (event.user_email or "").strip().lower() or None,
+                recipient_emails_str,
                 event.title,
                 event.description,
                 event.start_time,
@@ -203,6 +223,20 @@ async def create_event(event: CalendarEvent):
             release_db_connection(conn)
 
     trigger_calendar_reminder_check()
+
+    if event.user_email and category in ["meetings", "meeting"]:
+        event_dict = {
+            "title": event.title,
+            "category": category,
+            "start_time": event.start_time,
+            "room_id": room_id,
+            "user_email": event.user_email,
+        }
+        try:
+            send_meeting_scheduled_email(event_dict)
+        except Exception as e:
+            print(f"Failed to send scheduled meeting email: {e}")
+
     return {"id": event_id, "message": "Event created successfully"}
 
 @router.delete("/events/{id}")
@@ -241,6 +275,18 @@ async def update_event(id: str, event: CalendarEvent):
         room_id = normalize_uuid_or_none(event.room_id)
         if room_id:
             ensure_meeting_record(room_id, host_user_id=event_user_id, title=event.title)
+
+        all_emails = []
+        host_email = (event.user_email or "").strip().lower()
+        if host_email:
+            all_emails.append(host_email)
+        if event.guest_emails:
+            for em in event.guest_emails:
+                normalized_em = (em or "").strip().lower()
+                if normalized_em and normalized_em not in all_emails:
+                    all_emails.append(normalized_em)
+        recipient_emails_str = ",".join(all_emails) if all_emails else None
+
         cursor.execute(
             """
             UPDATE calendar_events
@@ -258,7 +304,7 @@ async def update_event(id: str, event: CalendarEvent):
             """,
             (
                 event_user_id,
-                (event.user_email or "").strip().lower() or None,
+                recipient_emails_str,
                 event.title,
                 event.description,
                 event.start_time,

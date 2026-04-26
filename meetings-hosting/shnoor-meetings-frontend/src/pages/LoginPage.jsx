@@ -4,18 +4,17 @@ import { format, formatDistanceToNowStrict, isAfter } from 'date-fns';
 import { saveUser } from '../services/userService';
 import { clearStoredUser, ensureFrontendUserId, getAllowedStoredUser, isAllowedShnoorEmail } from '../utils/currentUser';
 import { buildApiUrl } from '../utils/api';
+import {
+  buildMeetingLink,
+  formatEventDurationLabel,
+  formatReminderOffsetLabel,
+  normalizeEventCategory,
+} from '../utils/calendarEventUtils';
 
 const backendAuthBaseUrl = (
   import.meta.env.VITE_API_BASE_URL ||
   'https://meetings-vr93.onrender.com'
 ).replace(/\/$/, '');
-
-function normalizeEventCategory(category) {
-  const normalized = `${category || 'meetings'}`.trim().toLowerCase();
-  if (normalized === 'personal') return 'personal';
-  if (['reminder', 'reminders', 'remainder', 'remainders'].includes(normalized)) return 'reminders';
-  return 'meetings';
-}
 
 function getCategoryLabel(category) {
   const normalized = normalizeEventCategory(category);
@@ -264,8 +263,21 @@ export default function LoginPage() {
                   <div className="mt-2 text-sm font-semibold text-gray-800">
                     {event.title || 'Untitled'}
                   </div>
-                  <div className="mt-1 text-xs text-gray-600">
-                    {format(new Date(event.start_time), 'MMM d, yyyy - h:mm a')}
+                  <div className="mt-1 space-y-1 text-xs text-gray-600">
+                    <div>{format(new Date(event.start_time), 'MMM d, yyyy - h:mm a')}</div>
+                    <div>Duration: {formatEventDurationLabel(event.start_time, event.end_time)}</div>
+                    <div>Reminder: {formatReminderOffsetLabel(event.reminder_offset_minutes)}</div>
+                    {event.room_id && (
+                      <div className="break-all">
+                        Meeting link:{' '}
+                        <a
+                          href={buildMeetingLink(event.room_id)}
+                          className="text-indigo-600 hover:underline"
+                        >
+                          {buildMeetingLink(event.room_id)}
+                        </a>
+                      </div>
+                    )}
                   </div>
                 </div>
               ))
