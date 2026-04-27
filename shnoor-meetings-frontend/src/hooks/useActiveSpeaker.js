@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 
 // RMS levels from getByteTimeDomainData are typically small; keep this low for reliable speech detection.
-const LEVEL_THRESHOLD = 0.015;
-const SPEAKING_HANG_MS = 420;
-const DOMINANT_HOLD_MS = 650;
-const TICK_MS = 300;
+const LEVEL_THRESHOLD = 0.01;
+const SPEAKING_HANG_MS = 360;
+const DOMINANT_HOLD_MS = 520;
+const TICK_MS = 200;
 
 export default function useActiveSpeaker(tiles, getPeerConnection) {
   const [state, setState] = useState({

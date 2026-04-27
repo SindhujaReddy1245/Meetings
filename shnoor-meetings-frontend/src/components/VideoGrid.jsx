@@ -6,9 +6,12 @@ import SpeakerHighlight from './SpeakerHighlight';
 import useActiveSpeaker from '../hooks/useActiveSpeaker';
 
 function hasUsableVideo(stream) {
-  return Boolean(
-    stream?.getVideoTracks?.().some((track) => track.readyState === 'live')
-  );
+  const tracks = stream?.getVideoTracks?.() || [];
+  return tracks.some((track) => (
+    track.readyState === 'live'
+    && track.enabled !== false
+    && track.muted !== true
+  ));
 }
 
 function SpeakerBackdrop({ active = false, featured = false }) {
@@ -55,6 +58,7 @@ function VideoPlayer({
   const hasLiveVideoTrack = hasUsableVideo(stream);
   const shouldShowVideo = Boolean(isVideoEnabled) && hasLiveVideoTrack;
   const ringStrength = Math.max(0, Math.min(audioLevel * 18, 1));
+  const showVideo = shouldShowVideo && videoReady;
 
   useEffect(() => {
     setVideoReady(false);
@@ -84,7 +88,7 @@ function VideoPlayer({
             : 'border-gray-700/50 shadow-2xl'
         }`}
       >
-        {shouldShowVideo ? (
+        {shouldShowVideo && (
           <video
             ref={videoRef}
             autoPlay
@@ -93,10 +97,16 @@ function VideoPlayer({
             onLoadedMetadata={() => setVideoReady(true)}
             onLoadedData={() => setVideoReady(true)}
             onCanPlay={() => setVideoReady(true)}
-            className={`w-full h-full ${featured ? 'object-contain bg-black' : 'object-cover'} ${isLocal ? 'transform -scale-x-100' : ''}`}
-            style={{ visibility: videoReady ? 'visible' : 'visible' }}
+            className={`absolute inset-0 w-full h-full ${featured ? 'object-contain bg-black' : 'object-cover'} ${isLocal ? 'transform -scale-x-100' : ''}`}
+            style={{
+              opacity: showVideo ? 1 : 0,
+              transition: 'opacity 180ms ease-out',
+              backgroundColor: 'transparent',
+            }}
           />
-        ) : (
+        )}
+
+        {!showVideo && (
           <div className="absolute inset-0 flex items-center justify-center">
             <SpeakerBackdrop active={isSpeaking} featured={featured} />
             <div className="relative z-10 flex items-center justify-center">
