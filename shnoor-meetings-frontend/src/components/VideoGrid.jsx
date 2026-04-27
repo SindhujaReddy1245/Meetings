@@ -227,11 +227,13 @@ export default function VideoGrid({
     isLocal: true,
   }), [isAudioEnabled, isSharingScreen, isVideoEnabled, localHandRaised, localIsHost, localParticipantName, localParticipantPicture, localStream]);
 
+  const tilesForSpeaker = useMemo(() => [localTile, ...remoteTiles], [localTile, remoteTiles]);
+
   const {
     dominantSpeakerId,
     speakingIds: speakingParticipantIds,
     audioLevels,
-  } = useActiveSpeaker([localTile, ...remoteTiles], getPeerConnection);
+  } = useActiveSpeaker(tilesForSpeaker, getPeerConnection);
 
   const standardGridTiles = useMemo(() => {
     const tiles = [localTile, ...remoteTiles]

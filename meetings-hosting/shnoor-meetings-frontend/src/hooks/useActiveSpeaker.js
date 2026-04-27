@@ -63,11 +63,11 @@ export default function useActiveSpeaker(tiles, getPeerConnection) {
 
     let isCancelled = false;
 
-    const tick = async () => {
+    const tick = () => {
       const now = Date.now();
       const levels = {};
 
-      await Promise.all(monitoredTiles.map(async (tile) => {
+      monitoredTiles.forEach((tile) => {
         if (tile.isAudioEnabled === false) {
           levels[tile.id] = 0;
           return;
@@ -97,7 +97,7 @@ export default function useActiveSpeaker(tiles, getPeerConnection) {
         if (smoothedLevel > LEVEL_THRESHOLD) {
           refs.current.lastSpokeAt[tile.id] = now;
         }
-      }));
+      });
 
       const speakingIds = monitoredTiles
         .filter((tile) => {
