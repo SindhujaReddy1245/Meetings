@@ -1,24 +1,21 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 
 const LEVEL_THRESHOLD = 0.04;
-const SPEAKING_HANG_MS = 420;
-const DOMINANT_HOLD_MS = 650;
-const TICK_MS = 160;
+const SPEAKING_HANG_MS = 600;
+const DOMINANT_HOLD_MS = 800;
+const TICK_MS = 300; // Throttled to 300ms as requested
 
 function getStatsLevel(reports) {
   let maxLevel = 0;
-
   reports.forEach((report) => {
     if (typeof report.audioLevel === 'number') {
       maxLevel = Math.max(maxLevel, report.audioLevel);
     }
-
     if (typeof report.totalAudioEnergy === 'number' && typeof report.totalSamplesDuration === 'number' && report.totalSamplesDuration > 0) {
       const normalized = Math.min(report.totalAudioEnergy / report.totalSamplesDuration, 1);
       maxLevel = Math.max(maxLevel, normalized);
     }
   });
-
   return maxLevel;
 }
 
@@ -28,11 +25,14 @@ export default function useActiveSpeaker(tiles, getPeerConnection) {
     speakingIds: [],
     audioLevels: {},
   });
+
   const refs = useRef({
     lastSpokeAt: {},
     dominantSpeakerId: null,
     dominantSince: 0,
     smoothedLevels: {},
+    timer: null,
+    isProcessing: false
   });
 
   const monitoredTiles = useMemo(
@@ -44,13 +44,7 @@ export default function useActiveSpeaker(tiles, getPeerConnection) {
     const AudioContextClass = window.AudioContext || window.webkitAudioContext;
     if (!AudioContextClass || !monitoredTiles.length) {
       setState({ dominantSpeakerId: null, speakingIds: [], audioLevels: {} });
-      refs.current = {
-        lastSpokeAt: {},
-        dominantSpeakerId: null,
-        dominantSince: 0,
-        smoothedLevels: {},
-      };
-      return undefined;
+      return;
     }
 
     const audioContext = new AudioContextClass();
@@ -59,15 +53,13 @@ export default function useActiveSpeaker(tiles, getPeerConnection) {
 
     monitoredTiles.forEach((tile) => {
       const audioTracks = tile.stream?.getAudioTracks?.() || [];
-      if (!audioTracks.length) {
-        return;
-      }
+      if (!audioTracks.length) return;
 
       try {
-        const source = audioContext.createMediaStreamSource(new MediaStream(audioTracks));
+        const source = audioContext.createMediaStreamSource(new MediaStream([audioTracks[0]]));
         const analyser = audioContext.createAnalyser();
-        analyser.fftSize = 1024;
-        analyser.smoothingTimeConstant = 0.82;
+        analyser.fftSize = 256; // Reduced for performance
+        analyser.smoothingTimeConstant = 0.4; // Faster response for throttled tick
         source.connect(analyser);
         analysers.set(tile.id, { analyser, source });
         buffers.set(tile.id, new Uint8Array(analyser.frequencyBinCount));
@@ -76,110 +68,103 @@ export default function useActiveSpeaker(tiles, getPeerConnection) {
       }
     });
 
-    let isCancelled = false;
-
     const tick = async () => {
+      if (refs.current.isProcessing) return;
+      refs.current.isProcessing = true;
+
       const now = Date.now();
       const levels = {};
+      const newLastSpokeAt = { ...refs.current.lastSpokeAt };
 
-      await Promise.all(monitoredTiles.map(async (tile) => {
-        if (tile.isAudioEnabled === false) {
-          levels[tile.id] = 0;
-          return;
-        }
+      try {
+        await Promise.all(monitoredTiles.map(async (tile) => {
+          if (tile.isAudioEnabled === false) {
+            levels[tile.id] = 0;
+            return;
+          }
 
-        const analyserEntry = analysers.get(tile.id);
-        let analyserLevel = 0;
+          const analyserEntry = analysers.get(tile.id);
+          let analyserLevel = 0;
 
-        if (analyserEntry) {
-          const buffer = buffers.get(tile.id);
-          analyserEntry.analyser.getByteFrequencyData(buffer);
-          const total = buffer.reduce((sum, value) => sum + value, 0);
-          analyserLevel = total / (buffer.length * 255);
-        }
+          if (analyserEntry) {
+            const buffer = buffers.get(tile.id);
+            analyserEntry.analyser.getByteFrequencyData(buffer);
+            const sum = buffer.reduce((a, b) => a + b, 0);
+            analyserLevel = sum / (buffer.length * 255);
+          }
 
-        let statsLevel = 0;
-        if (!tile.isLocal) {
-          const peerConnection = getPeerConnection?.(tile.id);
-          if (peerConnection?.getStats) {
-            try {
-              const reports = await peerConnection.getStats();
-              statsLevel = getStatsLevel(reports);
-            } catch (error) {
-              console.warn('Unable to read audio stats for', tile.id, error);
+          let statsLevel = 0;
+          if (!tile.isLocal) {
+            const pc = getPeerConnection?.(tile.id);
+            if (pc?.getStats) {
+              const stats = await pc.getStats();
+              statsLevel = getStatsLevel(stats);
             }
           }
-        }
 
-        const rawLevel = Math.max(analyserLevel, statsLevel);
-        const previousSmoothed = refs.current.smoothedLevels[tile.id] || 0;
-        const smoothedLevel = (previousSmoothed * 0.58) + (rawLevel * 0.42);
-        refs.current.smoothedLevels[tile.id] = smoothedLevel;
-        levels[tile.id] = smoothedLevel;
+          const rawLevel = Math.max(analyserLevel, statsLevel);
+          const prev = refs.current.smoothedLevels[tile.id] || 0;
+          const smoothed = (prev * 0.4) + (rawLevel * 0.6);
+          
+          refs.current.smoothedLevels[tile.id] = smoothed;
+          levels[tile.id] = smoothed;
 
-        if (smoothedLevel > LEVEL_THRESHOLD) {
-          refs.current.lastSpokeAt[tile.id] = now;
-        }
-      }));
-
-      const speakingIds = monitoredTiles
-        .filter((tile) => {
-          const lastSpokeAt = refs.current.lastSpokeAt[tile.id] || 0;
-          return levels[tile.id] > LEVEL_THRESHOLD || (now - lastSpokeAt) < SPEAKING_HANG_MS;
-        })
-        .sort((left, right) => (levels[right.id] || 0) - (levels[left.id] || 0))
-        .map((tile) => tile.id);
-
-      const topSpeakerId = speakingIds[0] || null;
-      let nextDominantSpeakerId = refs.current.dominantSpeakerId;
-
-      if (!topSpeakerId) {
-        if ((now - refs.current.dominantSince) > DOMINANT_HOLD_MS) {
-          nextDominantSpeakerId = null;
-        }
-      } else if (nextDominantSpeakerId === topSpeakerId) {
-        refs.current.dominantSince = now;
-      } else {
-        const currentLevel = levels[nextDominantSpeakerId] || 0;
-        const candidateLevel = levels[topSpeakerId] || 0;
-        const shouldSwitch = !nextDominantSpeakerId
-          || candidateLevel > (currentLevel * 1.18)
-          || (now - refs.current.dominantSince) > DOMINANT_HOLD_MS;
-
-        if (shouldSwitch) {
-          nextDominantSpeakerId = topSpeakerId;
-          refs.current.dominantSince = now;
-        }
-      }
-
-      refs.current.dominantSpeakerId = nextDominantSpeakerId;
-
-      if (!isCancelled) {
-        setState((current) => {
-          const sameDominant = current.dominantSpeakerId === nextDominantSpeakerId;
-          const sameSpeakingIds = current.speakingIds.length === speakingIds.length
-            && current.speakingIds.every((id, index) => id === speakingIds[index]);
-
-          if (sameDominant && sameSpeakingIds) {
-            return { ...current, audioLevels: levels };
+          if (smoothed > LEVEL_THRESHOLD) {
+            newLastSpokeAt[tile.id] = now;
           }
+        }));
 
-          return {
-            dominantSpeakerId: nextDominantSpeakerId,
+        refs.current.lastSpokeAt = newLastSpokeAt;
+
+        const speakingIds = monitoredTiles
+          .filter((tile) => {
+            const last = refs.current.lastSpokeAt[tile.id] || 0;
+            return levels[tile.id] > LEVEL_THRESHOLD || (now - last) < SPEAKING_HANG_MS;
+          })
+          .sort((a, b) => (levels[b.id] || 0) - (levels[a.id] || 0))
+          .map((t) => t.id);
+
+        const topId = speakingIds[0] || null;
+        let nextDominant = refs.current.dominantSpeakerId;
+
+        if (!topId) {
+          if ((now - refs.current.dominantSince) > DOMINANT_HOLD_MS) nextDominant = null;
+        } else if (nextDominant === topId) {
+          refs.current.dominantSince = now;
+        } else {
+          const currentLevel = levels[nextDominant] || 0;
+          const candidateLevel = levels[topId] || 0;
+          if (!nextDominant || candidateLevel > (currentLevel * 1.2) || (now - refs.current.dominantSince) > DOMINANT_HOLD_MS) {
+            nextDominant = topId;
+            refs.current.dominantSince = now;
+          }
+        }
+
+        const changedDominant = refs.current.dominantSpeakerId !== nextDominant;
+        const changedSpeaking = JSON.stringify(state.speakingIds) !== JSON.stringify(speakingIds);
+
+        if (changedDominant || changedSpeaking) {
+          refs.current.dominantSpeakerId = nextDominant;
+          setState({
+            dominantSpeakerId: nextDominant,
             speakingIds,
-            audioLevels: levels,
-          };
-        });
+            audioLevels: levels
+          });
+        } else {
+          setState(prev => ({ ...prev, audioLevels: levels }));
+        }
+      } catch (err) {
+        console.error('Tick error', err);
+      } finally {
+        refs.current.isProcessing = false;
       }
     };
 
     audioContext.resume().catch(() => {});
-    tick();
-    const intervalId = window.setInterval(tick, TICK_MS);
+    const intervalId = setInterval(tick, TICK_MS);
 
     return () => {
-      isCancelled = true;
-      window.clearInterval(intervalId);
+      clearInterval(intervalId);
       analysers.forEach(({ source }) => source.disconnect());
       audioContext.close().catch(() => {});
     };

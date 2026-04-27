@@ -463,7 +463,7 @@ export default function LobbyPage() {
         roomId={roomId} 
       />
 
-      <style jsx>{`
+      <style>{`
         .mirror {
           transform: scaleX(-1);
         }
