@@ -52,16 +52,18 @@ function VideoPlayer({
 }) {
   const videoRef = useRef(null);
   const [videoReady, setVideoReady] = useState(false);
+  const [isVideoRendering, setIsVideoRendering] = useState(false);
   const loggedInUser = getCurrentUser();
   const resolvedPicture = isLocal ? (picture || loggedInUser?.picture || null) : picture;
   const resolvedLabel = isLocal ? (label || loggedInUser?.name || loggedInUser?.email || 'You') : label;
   const hasLiveVideoTrack = hasUsableVideo(stream);
   const shouldShowVideo = Boolean(isVideoEnabled) && hasLiveVideoTrack;
   const ringStrength = Math.max(0, Math.min(audioLevel * 18, 1));
-  const showVideo = shouldShowVideo && videoReady;
+  const showVideo = shouldShowVideo && videoReady && isVideoRendering;
 
   useEffect(() => {
     setVideoReady(false);
+    setIsVideoRendering(false);
 
     if (videoRef.current && stream) {
       const element = videoRef.current;
@@ -76,6 +78,64 @@ function VideoPlayer({
       });
     }
   }, [hasLiveVideoTrack, isVideoEnabled, stream]);
+
+  useEffect(() => {
+    if (!shouldShowVideo) {
+      setIsVideoRendering(false);
+      return undefined;
+    }
+
+    const element = videoRef.current;
+    if (!element) {
+      return undefined;
+    }
+
+    let cancelled = false;
+    let lastTime = element.currentTime || 0;
+    let stableTicks = 0;
+    let rafId = null;
+    let intervalId = null;
+
+    const markRendering = () => {
+      if (cancelled) return;
+      setIsVideoRendering(true);
+    };
+
+    // Best signal when available.
+    if (typeof element.requestVideoFrameCallback === 'function') {
+      const onFrame = () => {
+        if (cancelled) return;
+        if (element.videoWidth > 0 && element.videoHeight > 0) {
+          markRendering();
+          return;
+        }
+        rafId = element.requestVideoFrameCallback(onFrame);
+      };
+      rafId = element.requestVideoFrameCallback(onFrame);
+    }
+
+    // Fallback: detect that playback is advancing + has dimensions.
+    intervalId = window.setInterval(() => {
+      if (cancelled) return;
+      const hasDims = element.videoWidth > 0 && element.videoHeight > 0;
+      const timeNow = element.currentTime || 0;
+      const advanced = timeNow > lastTime + 0.08;
+      if (advanced) {
+        lastTime = timeNow;
+      }
+      stableTicks = advanced ? stableTicks + 1 : 0;
+      if (hasDims && stableTicks >= 2) {
+        markRendering();
+      }
+    }, 250);
+
+    return () => {
+      cancelled = true;
+      if (intervalId) window.clearInterval(intervalId);
+      // requestVideoFrameCallback can't be cancelled directly; we just gate via `cancelled`.
+      if (rafId) rafId = null;
+    };
+  }, [shouldShowVideo]);
 
   return (
     <SpeakerHighlight active={isSpeaking} featured={featured}>
