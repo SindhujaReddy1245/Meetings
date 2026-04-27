@@ -55,7 +55,8 @@ function VideoPlayer({
   const resolvedLabel = isLocal ? (label || loggedInUser?.name || loggedInUser?.email || 'You') : label;
   const hasLiveVideoTrack = hasUsableVideo(stream);
   const shouldShowVideo = Boolean(isVideoEnabled) && hasLiveVideoTrack;
-  const ringStrength = Math.max(0, Math.min(audioLevel * 220, 1));
+  const ringStrength = Math.max(0, Math.min(audioLevel * 18, 1));
+  const pulseScale = 1 + Math.min(audioLevel * 3.2, 0.5);
 
   useEffect(() => {
     setVideoReady(false);
@@ -100,6 +101,18 @@ function VideoPlayer({
         ) : (
           <div className="absolute inset-0 flex items-center justify-center bg-[radial-gradient(circle_at_top,#31445f_0%,#1f2d44_45%,#142033_100%)]">
             <SpeakerBackdrop active={isSpeaking} featured={featured} />
+            {isSpeaking && (
+              <div className="absolute inset-0 flex items-center justify-center overflow-hidden">
+                <div
+                  className={`rounded-full bg-white/20 ${featured ? 'h-72 w-72' : compact ? 'h-32 w-32' : 'h-52 w-52'}`}
+                  style={{
+                    transform: `scale(${pulseScale})`,
+                    transition: 'transform 140ms ease-out',
+                    filter: 'blur(0.2px)',
+                  }}
+                />
+              </div>
+            )}
             <SpeakerHighlight active={isSpeaking} featured={featured} pulseTarget="avatar">
               <div className="relative z-10">
                 <ProfileAvatar
@@ -152,7 +165,7 @@ function VideoPlayer({
             <div className="flex items-center gap-1 rounded-full bg-black/45 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.2em] text-emerald-100">
               <span
                 className="h-2 w-2 rounded-full bg-emerald-300"
-                style={{ boxShadow: `0 0 ${14 + (ringStrength * 12)}px rgba(110, 231, 183, 0.9)` }}
+              style={{ boxShadow: `0 0 ${10 + (ringStrength * 16)}px rgba(110, 231, 183, 0.9)` }}
               />
               Speaking
             </div>
@@ -274,7 +287,7 @@ export default function VideoGrid({
         return rightLevel - leftLevel;
       });
     if (tiles.length <= 1) return 'grid-cols-1 max-w-4xl';
-    if (tiles.length === 2) return 'grid-cols-1 md:grid-cols-2 max-w-6xl';
+    if (tiles.length === 2) return 'grid-cols-2 max-w-6xl';
     if (tiles.length <= 4) return 'grid-cols-2 max-w-6xl';
     return 'grid-cols-2 lg:grid-cols-3 max-w-7xl';
   }, [audioLevels, localTile, remoteTiles]);

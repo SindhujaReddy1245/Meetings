@@ -594,6 +594,16 @@ export function useWebRTC(roomId, options = {}) {
   }, [joinRoom]);
 
   useEffect(() => {
+    if (!autoJoin) {
+      return;
+    }
+
+    if (ws.current?.readyState === WebSocket.OPEN && !joinedRoomRef.current) {
+      joinRoomCallbackRef.current?.();
+    }
+  }, [autoJoin]);
+
+  useEffect(() => {
     const nextIsHost = computeIsHost();
     const wasHost = isHost.current;
     isHost.current = nextIsHost;
