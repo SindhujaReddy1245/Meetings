@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { format, formatDistanceToNowStrict, isAfter } from 'date-fns';
 import { saveUser } from '../services/userService';
-import { ensureFrontendUserId } from '../utils/currentUser';
+import { clearStoredUser, ensureFrontendUserId, getAllowedStoredUser, isAllowedShnoorEmail } from '../utils/currentUser';
 import { buildApiUrl } from '../utils/api';
 
 const backendAuthBaseUrl = (
@@ -41,7 +41,7 @@ export default function LoginPage() {
   const [isLoadingPreview, setIsLoadingPreview] = useState(false);
 
   useEffect(() => {
-    const user = JSON.parse(localStorage.getItem('user'));
+    const user = getAllowedStoredUser();
     if (user) {
       navigate('/', { replace: true });
     }
@@ -67,6 +67,14 @@ export default function LoginPage() {
       try {
         const decodedPayload = atob(encodedUser.replace(/-/g, '+').replace(/_/g, '/'));
         const user = JSON.parse(decodedPayload);
+
+        if (!isAllowedShnoorEmail(user?.email || '')) {
+          clearStoredUser();
+          alert('Invalid email received from Google login.');
+          window.history.replaceState({}, document.title, '/login');
+          return;
+        }
+
         await persistUser(user);
         window.history.replaceState({}, document.title, '/login');
         navigate('/', { replace: true });
@@ -83,7 +91,7 @@ export default function LoginPage() {
   useEffect(() => {
     const normalizedEmail = email.trim().toLowerCase();
 
-    if (!normalizedEmail || !normalizedEmail.includes('@')) {
+    if (!normalizedEmail || !isAllowedShnoorEmail(normalizedEmail)) {
       setCalendarPreview([]);
       setIsLoadingPreview(false);
       return;
@@ -149,17 +157,23 @@ export default function LoginPage() {
 
   const handleLogin = async (event) => {
     event.preventDefault();
+    const normalizedEmail = email.trim().toLowerCase();
 
-    if (!email) {
-      alert('Enter your Gmail');
+    if (!normalizedEmail) {
+      alert('Enter your email');
+      return;
+    }
+
+    if (!isAllowedShnoorEmail(normalizedEmail)) {
+      alert('Enter a valid email address');
       return;
     }
 
     const userData = {
-      id: email,
-      name: email,
-      email,
-      picture: `https://ui-avatars.com/api/?name=${encodeURIComponent(email)}`,
+      id: normalizedEmail,
+      name: normalizedEmail,
+      email: normalizedEmail,
+      picture: null,
     };
 
     await persistUser(userData);
@@ -178,7 +192,7 @@ export default function LoginPage() {
         <form onSubmit={handleLogin} className="flex flex-col gap-4">
           <input
             type="email"
-            placeholder="Enter your Gmail"
+            placeholder="Enter your email"
             value={email}
             required
             onChange={(event) => setEmail(event.target.value)}

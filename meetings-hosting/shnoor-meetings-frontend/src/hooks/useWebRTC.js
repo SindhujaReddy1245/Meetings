@@ -143,12 +143,15 @@ export function useWebRTC(roomId, options = {}) {
     sendSignalingMessage({
       type: 'participant-update',
       name: displayName.current,
+      picture: currentUser.current?.picture || null,
       role: isHost.current ? 'host' : 'participant',
       isHandRaised,
       isSharingScreen,
+      isAudioEnabled,
+      isVideoEnabled,
       ...extraState,
     });
-  }, [isHandRaised, isSharingScreen, sendSignalingMessage]);
+  }, [isAudioEnabled, isHandRaised, isSharingScreen, isVideoEnabled, sendSignalingMessage]);
 
   const joinRoom = useCallback(() => {
     if (joinedRoomRef.current || !ws.current || ws.current.readyState !== WebSocket.OPEN) {
@@ -163,9 +166,12 @@ export function useWebRTC(roomId, options = {}) {
       [clientId.current]: {
         ...prev[clientId.current],
         name: displayName.current,
+        picture: currentUser.current?.picture || null,
         role: isHost.current ? 'host' : 'participant',
         isHandRaised: false,
         isSharingScreen: false,
+        isAudioEnabled,
+        isVideoEnabled,
       },
     }));
 
@@ -177,10 +183,13 @@ export function useWebRTC(roomId, options = {}) {
       firebase_uid: currentUser.current?.firebaseUid || null,
       email: currentUser.current?.email || null,
       name: displayName.current,
+      picture: currentUser.current?.picture || null,
       role: isHost.current ? 'host' : 'participant',
       joined_at: new Date().toISOString(),
+      isAudioEnabled,
+      isVideoEnabled,
     });
-  }, [roomId, sendSignalingMessage, startSessionTracking]);
+  }, [isAudioEnabled, isVideoEnabled, roomId, sendSignalingMessage, startSessionTracking]);
 
   const createPeerConnection = useCallback((peerId, stream) => {
     if (!peerId || !stream) {
@@ -294,9 +303,16 @@ export function useWebRTC(roomId, options = {}) {
           [peerId]: {
             ...prev[peerId],
             name: data.name || prev[peerId]?.name || 'Participant',
+            picture: data.picture || prev[peerId]?.picture || null,
             role: data.role || prev[peerId]?.role || 'participant',
             isHandRaised: prev[peerId]?.isHandRaised || false,
             isSharingScreen: prev[peerId]?.isSharingScreen || false,
+            isAudioEnabled: typeof data.isAudioEnabled === 'boolean'
+              ? data.isAudioEnabled
+              : prev[peerId]?.isAudioEnabled ?? true,
+            isVideoEnabled: typeof data.isVideoEnabled === 'boolean'
+              ? data.isVideoEnabled
+              : prev[peerId]?.isVideoEnabled ?? true,
           },
         }));
 
@@ -324,9 +340,12 @@ export function useWebRTC(roomId, options = {}) {
           [peerId]: {
             ...prev[peerId],
             name: data.name || prev[peerId]?.name || 'Participant',
+            picture: data.picture || prev[peerId]?.picture || null,
             role: data.role || prev[peerId]?.role || 'participant',
             isHandRaised: prev[peerId]?.isHandRaised || false,
             isSharingScreen: prev[peerId]?.isSharingScreen || false,
+            isAudioEnabled: prev[peerId]?.isAudioEnabled ?? true,
+            isVideoEnabled: prev[peerId]?.isVideoEnabled ?? true,
           },
         }));
 
@@ -414,9 +433,12 @@ export function useWebRTC(roomId, options = {}) {
           [peerId]: {
             ...prev[peerId],
             name: data.name || prev[peerId]?.name || 'Participant',
+            picture: data.picture || prev[peerId]?.picture || null,
             role: data.role || prev[peerId]?.role || 'participant',
             isHandRaised: typeof data.isHandRaised === 'boolean' ? data.isHandRaised : prev[peerId]?.isHandRaised,
             isSharingScreen: typeof data.isSharingScreen === 'boolean' ? data.isSharingScreen : prev[peerId]?.isSharingScreen,
+            isAudioEnabled: typeof data.isAudioEnabled === 'boolean' ? data.isAudioEnabled : prev[peerId]?.isAudioEnabled ?? true,
+            isVideoEnabled: typeof data.isVideoEnabled === 'boolean' ? data.isVideoEnabled : prev[peerId]?.isVideoEnabled ?? true,
           },
         }));
         break;
@@ -428,9 +450,12 @@ export function useWebRTC(roomId, options = {}) {
               [clientId.current]: {
                 ...prev[clientId.current],
                 name: displayName.current,
+                picture: currentUser.current?.picture || null,
                 role: isHost.current ? 'host' : 'participant',
                 isHandRaised,
                 isSharingScreen,
+                isAudioEnabled,
+                isVideoEnabled,
               },
             };
 
@@ -442,6 +467,7 @@ export function useWebRTC(roomId, options = {}) {
               nextMetadata[participant.id] = {
                 ...prev[participant.id],
                 name: participant.name || prev[participant.id]?.name || 'Participant',
+                picture: participant.picture || prev[participant.id]?.picture || null,
                 role: participant.role || prev[participant.id]?.role || 'participant',
                 isHandRaised: typeof participant.isHandRaised === 'boolean'
                   ? participant.isHandRaised
@@ -449,6 +475,12 @@ export function useWebRTC(roomId, options = {}) {
                 isSharingScreen: typeof participant.isSharingScreen === 'boolean'
                   ? participant.isSharingScreen
                   : prev[participant.id]?.isSharingScreen || false,
+                isAudioEnabled: typeof participant.isAudioEnabled === 'boolean'
+                  ? participant.isAudioEnabled
+                  : prev[participant.id]?.isAudioEnabled ?? true,
+                isVideoEnabled: typeof participant.isVideoEnabled === 'boolean'
+                  ? participant.isVideoEnabled
+                  : prev[participant.id]?.isVideoEnabled ?? true,
               };
             });
 
@@ -471,6 +503,7 @@ export function useWebRTC(roomId, options = {}) {
             {
               id: peerId,
               name: data.name || 'Participant',
+              picture: data.picture || null,
             },
           ];
         });
@@ -509,6 +542,10 @@ export function useWebRTC(roomId, options = {}) {
     sendSignalingMessage,
     startSessionTracking,
     syncParticipantState,
+    isHandRaised,
+    isSharingScreen,
+    isAudioEnabled,
+    isVideoEnabled,
   ]);
 
   useEffect(() => {
@@ -527,6 +564,7 @@ export function useWebRTC(roomId, options = {}) {
         user_id: currentUser.current?.meetingUserId || clientId.current,
         email: currentUser.current?.email || null,
         name: displayName.current,
+        picture: currentUser.current?.picture || null,
       }));
     }
   }, [computeIsHost]);
@@ -600,6 +638,7 @@ export function useWebRTC(roomId, options = {}) {
               user_id: currentUser.current?.meetingUserId || clientId.current,
               email: currentUser.current?.email || null,
               name: displayName.current,
+              picture: currentUser.current?.picture || null,
             }));
           }
 
@@ -665,13 +704,18 @@ export function useWebRTC(roomId, options = {}) {
       firebase_uid: currentUser.current?.firebaseUid || null,
       email: currentUser.current?.email || null,
       name,
+      picture: currentUser.current?.picture || null,
       requested_at: new Date().toISOString(),
     });
   }, [roomId, sendSignalingMessage]);
 
   const toggleVideo = useCallback(() => {
     if (!localStream) {
-      setIsVideoEnabled((prev) => !prev);
+      setIsVideoEnabled((prev) => {
+        const nextValue = !prev;
+        syncParticipantState({ isVideoEnabled: nextValue });
+        return nextValue;
+      });
       return;
     }
 
@@ -679,15 +723,24 @@ export function useWebRTC(roomId, options = {}) {
     if (videoTrack) {
       videoTrack.enabled = !videoTrack.enabled;
       setIsVideoEnabled(videoTrack.enabled);
+      syncParticipantState({ isVideoEnabled: videoTrack.enabled });
       return;
     }
 
-    setIsVideoEnabled((prev) => !prev);
-  }, [localStream]);
+    setIsVideoEnabled((prev) => {
+      const nextValue = !prev;
+      syncParticipantState({ isVideoEnabled: nextValue });
+      return nextValue;
+    });
+  }, [localStream, syncParticipantState]);
 
   const toggleAudio = useCallback(() => {
     if (!localStream) {
-      setIsAudioEnabled((prev) => !prev);
+      setIsAudioEnabled((prev) => {
+        const nextValue = !prev;
+        syncParticipantState({ isAudioEnabled: nextValue });
+        return nextValue;
+      });
       return;
     }
 
@@ -695,11 +748,16 @@ export function useWebRTC(roomId, options = {}) {
     if (audioTrack) {
       audioTrack.enabled = !audioTrack.enabled;
       setIsAudioEnabled(audioTrack.enabled);
+      syncParticipantState({ isAudioEnabled: audioTrack.enabled });
       return;
     }
 
-    setIsAudioEnabled((prev) => !prev);
-  }, [localStream]);
+    setIsAudioEnabled((prev) => {
+      const nextValue = !prev;
+      syncParticipantState({ isAudioEnabled: nextValue });
+      return nextValue;
+    });
+  }, [localStream, syncParticipantState]);
 
   const stopScreenShare = useCallback((screenTrack) => {
     if (screenTrack) {
@@ -729,11 +787,14 @@ export function useWebRTC(roomId, options = {}) {
     sendSignalingMessage({
       type: 'participant-update',
       name: displayName.current,
+      picture: currentUser.current?.picture || null,
       role: isHost.current ? 'host' : 'participant',
       isHandRaised,
       isSharingScreen: false,
+      isAudioEnabled,
+      isVideoEnabled,
     });
-  }, [isHandRaised, sendSignalingMessage]);
+  }, [isAudioEnabled, isHandRaised, isVideoEnabled, sendSignalingMessage]);
 
   const toggleScreenShare = useCallback(async () => {
     try {
@@ -768,9 +829,12 @@ export function useWebRTC(roomId, options = {}) {
         sendSignalingMessage({
           type: 'participant-update',
           name: displayName.current,
+          picture: currentUser.current?.picture || null,
           role: isHost.current ? 'host' : 'participant',
           isHandRaised,
           isSharingScreen: true,
+          isAudioEnabled,
+          isVideoEnabled,
         });
       } else {
         const screenTrack = localStream?.getVideoTracks?.()[0];
@@ -779,7 +843,7 @@ export function useWebRTC(roomId, options = {}) {
     } catch (error) {
       console.error('Error sharing screen:', error);
     }
-  }, [isHandRaised, isSharingScreen, localStream, sendSignalingMessage, stopScreenShare]);
+  }, [isHandRaised, isSharingScreen, localStream, sendSignalingMessage, stopScreenShare, isAudioEnabled, isVideoEnabled]);
 
   const toggleRaiseHand = useCallback(() => {
     const nextState = !isHandRaised;
@@ -796,16 +860,20 @@ export function useWebRTC(roomId, options = {}) {
     sendSignalingMessage({
       type: nextState ? 'raise-hand' : 'lower-hand',
       name: displayName.current,
+      picture: currentUser.current?.picture || null,
     });
 
     sendSignalingMessage({
       type: 'participant-update',
       name: displayName.current,
+      picture: currentUser.current?.picture || null,
       role: isHost.current ? 'host' : 'participant',
       isHandRaised: nextState,
       isSharingScreen,
+      isAudioEnabled,
+      isVideoEnabled,
     });
-  }, [isHandRaised, isSharingScreen, sendSignalingMessage]);
+  }, [isAudioEnabled, isHandRaised, isSharingScreen, isVideoEnabled, sendSignalingMessage]);
 
   const sendChatMessage = useCallback((text) => {
     sendSignalingMessage({
@@ -815,6 +883,8 @@ export function useWebRTC(roomId, options = {}) {
     });
     addMessage({ sender: 'Me', text });
   }, [addMessage, sendSignalingMessage]);
+
+  const getPeerConnection = useCallback((peerId) => peerConnections.current[peerId] || null, []);
 
   return {
     localStream,
@@ -839,5 +909,6 @@ export function useWebRTC(roomId, options = {}) {
     isAudioEnabled,
     isVideoEnabled,
     localClientId: clientId.current,
+    getPeerConnection,
   };
 }

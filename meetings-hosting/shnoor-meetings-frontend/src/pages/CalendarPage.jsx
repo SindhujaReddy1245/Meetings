@@ -216,6 +216,34 @@ export default function CalendarPage() {
     }
   };
 
+  const handleRemoveEvent = async (eventId) => {
+    if (!eventId) {
+      return;
+    }
+
+    const identityKey = getCalendarIdentityKey(currentUser);
+    const existingLocalEvents = readStoredEvents(identityKey);
+    const nextLocalEvents = existingLocalEvents.filter((event) => event.id !== eventId);
+
+    writeStoredEvents(identityKey, nextLocalEvents);
+    setEvents((prev) => prev.filter((event) => event.id !== eventId));
+
+    try {
+      const response = await fetch(buildApiUrl(`/api/calendar/events/${eventId}`), {
+        method: 'DELETE',
+      });
+
+      if (!response.ok) {
+        throw new Error(await response.text());
+      }
+
+      await fetchEvents();
+    } catch (err) {
+      console.error('Failed to remove calendar event:', err);
+      await fetchEvents();
+    }
+  };
+
   const filteredEvents = useMemo(() => (
     events.filter((event) => activeCategories.includes(normalizeEventCategory(event.category)))
   ), [activeCategories, events]);
@@ -259,6 +287,7 @@ export default function CalendarPage() {
               currentDate={currentDate} 
               events={filteredEvents} 
               onDateClick={handleDateClick} 
+              onRemoveEvent={handleRemoveEvent}
             />
           )}
           {view === 'Week' && (
@@ -266,6 +295,7 @@ export default function CalendarPage() {
               currentDate={currentDate} 
               events={filteredEvents} 
               onSlotClick={handleDateClick} 
+              onRemoveEvent={handleRemoveEvent}
             />
           )}
           {view === 'Day' && (
@@ -273,6 +303,7 @@ export default function CalendarPage() {
               currentDate={currentDate} 
               events={filteredEvents} 
               onSlotClick={handleDateClick} 
+              onRemoveEvent={handleRemoveEvent}
             />
           )}
         </main>

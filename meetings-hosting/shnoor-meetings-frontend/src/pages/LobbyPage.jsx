@@ -5,7 +5,13 @@ import MeetingHeader from '../components/MeetingHeader';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useWebRTC } from '../hooks/useWebRTC';
 import InviteModal from '../components/InviteModal';
-import { getPreJoinMediaState, getPreferredMediaConstraints, savePreJoinMediaState } from '../utils/meetingUtils';
+import {
+  cachePreJoinStream,
+  clearPreJoinStream,
+  getPreJoinMediaState,
+  getPreferredMediaConstraints,
+  savePreJoinMediaState,
+} from '../utils/meetingUtils';
 import { getCurrentUser } from '../utils/currentUser';
 import { buildApiUrl } from '../utils/api';
 
@@ -51,6 +57,7 @@ export default function LobbyPage() {
 
   const toastTimeoutRef = useRef(null);
   const joinMeetingRef = useRef(null);
+  const isNavigatingToRoomRef = useRef(false);
 
   useEffect(() => {
     const params = new URLSearchParams(location.search);
@@ -137,6 +144,7 @@ export default function LobbyPage() {
           videoTrack.enabled = initialMediaState.videoEnabled;
         }
         setStream(mediaStream);
+        cachePreJoinStream(roomId, mediaStream);
         if (videoRef.current) {
           videoRef.current.srcObject = mediaStream;
         }
@@ -147,11 +155,12 @@ export default function LobbyPage() {
     startPreview();
 
     return () => {
-      if (stream) {
+      if (!isNavigatingToRoomRef.current && stream) {
+        clearPreJoinStream(roomId);
         stream.getTracks().forEach(track => track.stop());
       }
     };
-  }, []);
+  }, [roomId, stream]);
 
   const toggleMic = () => {
     if (stream) {
@@ -185,7 +194,9 @@ export default function LobbyPage() {
     const handleAdmitted = (e) => {
       if (e.detail.roomId === roomId) {
         setIsWaiting(false);
-        joinMeetingRef.current?.();
+        window.setTimeout(() => {
+          joinMeetingRef.current?.();
+        }, 150);
       }
     };
     const handleDenied = (e) => {
@@ -214,18 +225,22 @@ export default function LobbyPage() {
     admitParticipant(participantId);
 
     if (!sessionStorage.getItem(`meeting_admitted_${roomId}`)) {
-      joinMeetingRef.current?.();
+      window.setTimeout(() => {
+        joinMeetingRef.current?.();
+      }, 200);
     }
   };
 
   const joinMeeting = () => {
     const trimmedName = participantName.trim() || currentUser?.name || (resolvedRole === 'host' ? 'Host' : 'Guest');
     sessionStorage.setItem(`meeting_name_${roomId}`, trimmedName);
+    sessionStorage.setItem(`meeting_role_${roomId}`, resolvedRole === 'host' || shouldShowHostControls ? 'host' : 'participant');
     sessionStorage.setItem(`meeting_admitted_${roomId}`, 'true');
     savePreJoinMediaState(roomId, { audioEnabled: isMicOn, videoEnabled: isVideoOn });
     if (stream) {
-      stream.getTracks().forEach(track => track.stop());
+      cachePreJoinStream(roomId, stream);
     }
+    isNavigatingToRoomRef.current = true;
     navigate(`/room/${roomId}`);
   };
 

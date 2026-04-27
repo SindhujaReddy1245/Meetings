@@ -1,4 +1,6 @@
-from datetime import datetime
+import os
+import threading
+from datetime import datetime, timedelta
 from typing import List, Optional
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
@@ -10,11 +12,14 @@ from core.database import (
     normalize_uuid_or_none,
     release_db_connection,
 )
+from core.reminders import process_pending_calendar_reminders, send_calendar_reminder_email
 
 router = APIRouter(
     prefix="/api/calendar",
     tags=["Calendar"]
 )
+
+DEFAULT_REMINDER_OFFSET_MINUTES = int((os.getenv("CALENDAR_REMINDER_OFFSET_MINUTES") or "5").strip() or "5")
 
 
 def normalize_event_category(category: Optional[str]) -> str:
@@ -46,6 +51,36 @@ class CreateEventResponse(BaseModel):
     id: str
     message: str
 
+
+def trigger_calendar_reminder_check():
+    threading.Thread(
+        target=process_pending_calendar_reminders,
+        name="calendar-reminder-kick",
+        daemon=True,
+    ).start()
+
+
+@router.post("/reminders/test")
+async def send_test_reminder(email: str = Query(..., min_length=3)):
+    normalized_email = (email or "").strip().lower()
+    if not normalized_email:
+        raise HTTPException(status_code=400, detail="A valid email is required")
+
+    test_event = {
+        "id": "manual-reminder-test",
+        "title": "Reminder Test",
+        "category": "meetings",
+        "start_time": datetime.utcnow() + timedelta(minutes=5),
+        "reminder_offset_minutes": 5,
+        "user_email": normalized_email,
+    }
+
+    try:
+        send_calendar_reminder_email(test_event)
+        return {"message": f"Test reminder sent to {normalized_email}"}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to send test reminder: {str(exc)}")
+
 @router.get("/events", response_model=List[CalendarEvent])
 async def get_events(
     user_id: Optional[str] = Query(default=None),
@@ -66,10 +101,10 @@ async def get_events(
         if normalized_email:
             cursor.execute(
                 """
-                SELECT calendar_events.*, users.email AS user_email
+                SELECT calendar_events.*, COALESCE(calendar_events.recipient_email, users.email) AS user_email
                 FROM calendar_events
                 LEFT JOIN users ON users.id = calendar_events.user_id
-                WHERE LOWER(COALESCE(users.email, '')) = %s
+                WHERE LOWER(COALESCE(calendar_events.recipient_email, users.email, '')) = %s
                 ORDER BY calendar_events.start_time ASC
                 """,
                 (normalized_email,),
@@ -77,7 +112,7 @@ async def get_events(
         elif normalized_user_id:
             cursor.execute(
                 """
-                SELECT calendar_events.*, users.email AS user_email
+                SELECT calendar_events.*, COALESCE(calendar_events.recipient_email, users.email) AS user_email
                 FROM calendar_events
                 LEFT JOIN users ON users.id = calendar_events.user_id
                 WHERE calendar_events.user_id = %s
@@ -88,7 +123,7 @@ async def get_events(
         else:
             cursor.execute(
                 """
-                SELECT calendar_events.*, users.email AS user_email
+                SELECT calendar_events.*, COALESCE(calendar_events.recipient_email, users.email) AS user_email
                 FROM calendar_events
                 LEFT JOIN users ON users.id = calendar_events.user_id
                 ORDER BY calendar_events.start_time ASC
@@ -138,10 +173,21 @@ async def create_event(event: CalendarEvent):
         cursor = get_dict_cursor(conn)
         cursor.execute(
             """
-            INSERT INTO calendar_events (id, user_id, title, description, start_time, end_time, category, room_id)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+            INSERT INTO calendar_events (id, user_id, recipient_email, title, description, start_time, end_time, category, room_id, reminder_offset_minutes, reminder_sent_at)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NULL)
             """,
-            (event_id, user_id, event.title, event.description, event.start_time, event.end_time, category, room_id)
+            (
+                event_id,
+                user_id,
+                (event.user_email or "").strip().lower() or None,
+                event.title,
+                event.description,
+                event.start_time,
+                event.end_time,
+                category,
+                room_id,
+                DEFAULT_REMINDER_OFFSET_MINUTES,
+            )
         )
         conn.commit()
     except Exception as e:
@@ -156,6 +202,7 @@ async def create_event(event: CalendarEvent):
         if "conn" in locals() and conn:
             release_db_connection(conn)
 
+    trigger_calendar_reminder_check()
     return {"id": event_id, "message": "Event created successfully"}
 
 @router.delete("/events/{id}")
@@ -195,8 +242,32 @@ async def update_event(id: str, event: CalendarEvent):
         if room_id:
             ensure_meeting_record(room_id, host_user_id=event_user_id, title=event.title)
         cursor.execute(
-            "UPDATE calendar_events SET user_id = %s, title = %s, description = %s, start_time = %s, end_time = %s, category = %s, room_id = %s WHERE id = %s",
-            (event_user_id, event.title, event.description, event.start_time, event.end_time, category, room_id, id)
+            """
+            UPDATE calendar_events
+            SET user_id = %s,
+                recipient_email = %s,
+                title = %s,
+                description = %s,
+                start_time = %s,
+                end_time = %s,
+                category = %s,
+                room_id = %s,
+                reminder_offset_minutes = %s,
+                reminder_sent_at = NULL
+            WHERE id = %s
+            """,
+            (
+                event_user_id,
+                (event.user_email or "").strip().lower() or None,
+                event.title,
+                event.description,
+                event.start_time,
+                event.end_time,
+                category,
+                room_id,
+                DEFAULT_REMINDER_OFFSET_MINUTES,
+                id,
+            )
         )
         conn.commit()
         if cursor.rowcount == 0:
@@ -210,4 +281,5 @@ async def update_event(id: str, event: CalendarEvent):
     finally:
         release_db_connection(conn)
 
+    trigger_calendar_reminder_check()
     return {"message": "Event updated successfully"}

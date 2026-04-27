@@ -9,6 +9,7 @@ load_dotenv()
 
 # We use the Connection Pooling URL from Supabase (Defaults to Port 6543)
 SUPABASE_DB_URL = os.getenv("SUPABASE_DB_URL")
+DEFAULT_REMINDER_OFFSET_MINUTES = int((os.getenv("CALENDAR_REMINDER_OFFSET_MINUTES") or "5").strip() or "5")
 
 # Global connection pool
 db_pool = None
@@ -397,9 +398,60 @@ def _ensure_tables():
                 """
             )
             cursor.execute(
+                f"""
+                ALTER TABLE calendar_events
+                ADD COLUMN IF NOT EXISTS reminder_offset_minutes INTEGER NOT NULL DEFAULT {DEFAULT_REMINDER_OFFSET_MINUTES}
+                """
+            )
+            cursor.execute(
+                """
+                ALTER TABLE calendar_events
+                ADD COLUMN IF NOT EXISTS reminder_sent_at TIMESTAMPTZ NULL
+                """
+            )
+            cursor.execute(
+                """
+                ALTER TABLE calendar_events
+                ADD COLUMN IF NOT EXISTS recipient_email TEXT NULL
+                """
+            )
+            cursor.execute(
                 """
                 CREATE INDEX IF NOT EXISTS idx_calendar_events_user_start_time
                 ON calendar_events (user_id, start_time)
+                """
+            )
+            cursor.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_calendar_events_reminder_lookup
+                ON calendar_events (reminder_sent_at, start_time)
+                """
+            )
+            cursor.execute(
+                """
+                UPDATE calendar_events
+                SET reminder_offset_minutes = %s,
+                    reminder_sent_at = NULL
+                WHERE start_time > NOW()
+                  AND COALESCE(reminder_offset_minutes, %s) <> %s
+                """,
+                (
+                    DEFAULT_REMINDER_OFFSET_MINUTES,
+                    DEFAULT_REMINDER_OFFSET_MINUTES,
+                    DEFAULT_REMINDER_OFFSET_MINUTES,
+                )
+            )
+            cursor.execute(
+                """
+                UPDATE calendar_events
+                SET recipient_email = LOWER(users.email)
+                FROM users
+                WHERE users.id = calendar_events.user_id
+                  AND users.email IS NOT NULL
+                  AND (
+                    calendar_events.recipient_email IS NULL
+                    OR BTRIM(calendar_events.recipient_email) = ''
+                  )
                 """
             )
         conn.commit()

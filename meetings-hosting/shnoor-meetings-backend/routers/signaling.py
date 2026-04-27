@@ -35,6 +35,7 @@ def resolve_connection_user(data: dict, client_id: str):
             firebase_uid=data.get("firebase_uid"),
             name=data.get("name"),
             email=data.get("email"),
+            profile_picture=data.get("picture"),
         )
         return resolved_user_id, True
     except Exception as exc:
@@ -138,10 +139,13 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, client_id: str)
                     "user_id": user_id,
                     "email": email,
                     "name": name,
+                    "picture": data.get("picture"),
                     "role": role,
                     "joined": True,
                     "isHandRaised": False,
                     "isSharingScreen": False,
+                    "isAudioEnabled": data.get("isAudioEnabled", True),
+                    "isVideoEnabled": data.get("isVideoEnabled", True),
                 })
 
                 if role == "host":
@@ -156,6 +160,7 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, client_id: str)
                     "sender": client_id,
                     "client_id": client_id,
                     "name": name,
+                    "picture": data.get("picture"),
                     "role": role,
                     "message": f"User {client_id} joined the meeting",
                 }
@@ -182,6 +187,7 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, client_id: str)
                         "user_id": host_user_id,
                         "email": host_email,
                         "name": host_name,
+                        "picture": data.get("picture"),
                         "role": "host",
                         "joined": False,
                     })
@@ -199,15 +205,17 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, client_id: str)
                     "user_id": data.get("user_id") or client_id,
                     "email": data.get("email"),
                     "name": requester_name,
+                    "picture": data.get("picture"),
                     "role": "participant",
                     "joined": False,
                 })
-                manager.add_waiting_request(room_id, client_id, requester_name)
+                manager.add_waiting_request(room_id, client_id, requester_name, data.get("picture"))
                 await manager.send_to_role(room_id, "host", {
                     "type": "join_request",
                     "sender": client_id,
                     "client_id": client_id,
                     "name": requester_name,
+                    "picture": data.get("picture"),
                 })
                 await send_waiting_room_state(room_id)
                 continue
@@ -227,9 +235,12 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, client_id: str)
             if msg_type == "participant-update":
                 manager.set_connection_user(room_id, websocket, {
                     "name": data.get("name"),
+                    "picture": data.get("picture"),
                     "role": data.get("role"),
                     "isHandRaised": data.get("isHandRaised"),
                     "isSharingScreen": data.get("isSharingScreen"),
+                    "isAudioEnabled": data.get("isAudioEnabled"),
+                    "isVideoEnabled": data.get("isVideoEnabled"),
                 })
 
             message_to_send = {

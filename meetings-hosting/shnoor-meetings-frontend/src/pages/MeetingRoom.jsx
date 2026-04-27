@@ -5,6 +5,7 @@ import VideoGrid from '../components/VideoGrid';
 import MeetingControls from '../components/MeetingControls';
 import { Send, Users, Info, Video, Check, X, Copy, Link as LinkIcon } from 'lucide-react';
 import { getCurrentUser } from '../utils/currentUser';
+import ProfileAvatar from '../components/ProfileAvatar';
 
 export default function MeetingRoom() {
   const { id: roomId } = useParams();
@@ -35,6 +36,7 @@ export default function MeetingRoom() {
     isAudioEnabled,
     isVideoEnabled,
     localClientId,
+    getPeerConnection,
   } = useWebRTC(roomId, {
     autoJoin: isAdmitted || isStoredHost || storedRole === 'host',
     initialRole: isStoredHost || storedRole === 'host' ? 'host' : storedRole === 'participant' ? 'participant' : undefined,
@@ -52,6 +54,7 @@ export default function MeetingRoom() {
   const latestJoinRequest = activeJoinRequests[0] || null;
   const inCallParticipantIds = Object.keys(participantsMetadata).filter((peerId) => peerId !== localClientId);
   const inviteLink = `${window.location.origin}/meeting/${roomId}?role=participant`;
+  const currentUser = getCurrentUser();
 
   useEffect(() => {
     if (shouldShowHostControls && activeJoinRequests.length > prevJoinRequestsCount.current) {
@@ -113,13 +116,13 @@ export default function MeetingRoom() {
         recognitionRef.current = new SpeechRecognition();
         recognitionRef.current.continuous = true;
         recognitionRef.current.interimResults = true;
-        
+
         recognitionRef.current.onresult = (event) => {
           let interimTranscript = '';
           for (let i = event.resultIndex; i < event.results.length; ++i) {
             if (event.results[i].isFinal) {
               setCurrentCaptionText(event.results[i][0].transcript);
-              setTimeout(() => setCurrentCaptionText(''), 5000); 
+              setTimeout(() => setCurrentCaptionText(''), 5000);
             } else {
               interimTranscript += event.results[i][0].transcript;
               setCurrentCaptionText(interimTranscript);
@@ -128,23 +131,21 @@ export default function MeetingRoom() {
         };
 
         recognitionRef.current.onerror = (event) => {
-          console.error("Speech recognition error", event.error);
+          console.error('Speech recognition error', event.error);
         };
 
         try {
           recognitionRef.current.start();
         } catch (e) {
-          console.error("Could not start recognition", e);
+          console.error('Could not start recognition', e);
         }
       } else {
-        alert("Your browser does not support live captions.");
+        alert('Your browser does not support live captions.');
         setIsCaptionsOn(false);
       }
-    } else {
-      if (recognitionRef.current) {
-        recognitionRef.current.stop();
-        setCurrentCaptionText('');
-      }
+    } else if (recognitionRef.current) {
+      recognitionRef.current.stop();
+      setCurrentCaptionText('');
     }
 
     return () => {
@@ -166,10 +167,9 @@ export default function MeetingRoom() {
 
   return (
     <div className="h-screen w-full bg-gray-900 flex flex-col overflow-hidden text-white font-sans">
-      {/* Top Header */}
       <header className="w-full p-4 flex items-center justify-between border-b border-gray-800 bg-gray-900/90 backdrop-blur z-10">
         <div className="flex items-center gap-3">
-          <div className="h-3 w-3 bg-red-500 rounded-full animate-pulse border border-red-400"></div>
+          <div className="h-3 w-3 bg-red-500 rounded-full animate-pulse border border-red-400" />
           <span className="font-semibold text-lg tracking-wide hidden sm:block">Shnoor Meetings</span>
           <span className="text-gray-400 text-sm bg-gray-800 px-3 py-1 rounded border border-gray-700 ml-4 hidden md:inline-flex items-center cursor-pointer hover:bg-gray-700" onClick={copyRoomCode}>
             Code: {roomId} <Info size={14} className="ml-2" />
@@ -187,15 +187,12 @@ export default function MeetingRoom() {
           )}
         </div>
         <div className="flex items-center text-gray-400">
-          <Users size={20} className="mr-2" /> 
+          <Users size={20} className="mr-2" />
           <span className="font-medium">{1 + inCallParticipantIds.length}</span>
         </div>
       </header>
 
-      {/* Main Content Area */}
       <div className="flex-1 flex overflow-hidden p-4 relative w-full h-full gap-4">
-        
-        {/* Main Video Grid */}
         <div className={`flex-1 flex flex-col transition-all duration-300 ${isChatOpen ? 'pr-0 md:pr-4 md:w-3/4' : 'w-full'}`}>
           <div className="flex-1 rounded-2xl overflow-hidden flex items-center justify-center p-2">
             {!localStream ? (
@@ -208,12 +205,12 @@ export default function MeetingRoom() {
                     {mediaError ? 'Camera/Mic Access Failed' : 'Ready to join?'}
                   </h3>
                   <p className="text-gray-400 max-w-sm">
-                    {mediaError 
+                    {mediaError
                       ? `We couldn't access your hardware: ${mediaError}. Please check your browser permissions.`
                       : 'We are requesting access to your camera and microphone. Please click "Allow" in the browser prompt.'}
                   </p>
                   {mediaError && (
-                    <button 
+                    <button
                       onClick={() => window.location.reload()}
                       className="mt-6 px-8 py-3 bg-blue-600 hover:bg-blue-500 text-white rounded-full font-bold shadow-lg transition-all transform active:scale-95"
                     >
@@ -223,16 +220,21 @@ export default function MeetingRoom() {
                 </div>
               </div>
             ) : (
-              <VideoGrid 
-                localStream={localStream} 
-                remoteStreams={remoteStreams} 
+              <VideoGrid
+                localStream={localStream}
+                remoteStreams={remoteStreams}
                 participantsMetadata={participantsMetadata}
                 localHandRaised={isHandRaised}
                 localParticipantName={displayName || 'You'}
+                localParticipantPicture={currentUser?.picture || null}
+                localIsHost={isHost}
                 isSharingScreen={isSharingScreen}
+                isAudioEnabled={isAudioEnabled}
+                isVideoEnabled={isVideoEnabled}
+                getPeerConnection={getPeerConnection}
               />
             )}
-            
+
             {isCaptionsOn && currentCaptionText && (
               <div className="absolute bottom-28 left-1/2 -translate-x-1/2 bg-black/80 backdrop-blur-md px-6 py-3 rounded-xl max-w-3xl text-center shadow-2xl z-10 animate-in fade-in slide-in-from-bottom-4 duration-300">
                 <p className="text-white text-lg font-medium tracking-wide">
@@ -241,9 +243,8 @@ export default function MeetingRoom() {
               </div>
             )}
           </div>
-          
-          {/* Floating Action Menu aligned bottom center */}
-          <MeetingControls 
+
+          <MeetingControls
             roomId={roomId}
             onToggleVideo={toggleVideo}
             onToggleAudio={toggleAudio}
@@ -267,14 +268,13 @@ export default function MeetingRoom() {
           />
         </div>
 
-        {/* Sliding Chat Sidebar */}
         {isChatOpen && (
           <aside className="fixed inset-y-0 right-0 z-20 w-80 bg-gray-800 border-l border-gray-700 flex flex-col shadow-2xl md:relative md:rounded-xl md:my-2 md:mr-2">
             <div className="p-4 border-b border-gray-700 flex justify-between items-center bg-gray-800 rounded-t-xl">
               <h2 className="font-semibold text-lg">In-call messages</h2>
-              <button className="text-gray-400 hover:text-white md:hidden" onClick={() => setIsChatOpen(false)}>✕</button>
+              <button className="text-gray-400 hover:text-white md:hidden" onClick={() => setIsChatOpen(false)}>âœ•</button>
             </div>
-            
+
             <div className="flex-1 overflow-y-auto p-4 space-y-4">
               {messages.length === 0 ? (
                 <div className="h-full flex items-center justify-center text-gray-500 text-sm text-center px-4">
@@ -314,7 +314,6 @@ export default function MeetingRoom() {
           </aside>
         )}
 
-        {/* Sliding People/Lobby Sidebar */}
         {isPeopleOpen && (
           <aside className="fixed inset-y-0 right-0 z-20 w-80 bg-gray-800 border-l border-gray-700 flex flex-col shadow-2xl md:relative md:rounded-xl md:my-2 md:mr-2">
             <div className="p-4 border-b border-gray-700 flex justify-between items-center bg-gray-800 rounded-t-xl">
@@ -326,11 +325,10 @@ export default function MeetingRoom() {
                   </span>
                 )}
               </h2>
-              <button className="text-gray-400 hover:text-white md:hidden" onClick={() => setIsPeopleOpen(false)}>✕</button>
+              <button className="text-gray-400 hover:text-white md:hidden" onClick={() => setIsPeopleOpen(false)}>âœ•</button>
             </div>
-            
+
             <div className="flex-1 overflow-y-auto p-4 space-y-6">
-              {/* Waiting Room / Lobby Section */}
               {shouldShowHostControls && (
                 <div>
                   <div className="flex justify-between items-center mb-3">
@@ -341,16 +339,14 @@ export default function MeetingRoom() {
                     <div className="text-gray-500 text-sm italic py-2">No one is waiting in the lobby.</div>
                   ) : (
                     <div className="space-y-3">
-                      {activeJoinRequests.map(req => (
+                      {activeJoinRequests.map((req) => (
                         <div key={req.id} className="flex items-center justify-between gap-3 p-3 bg-gray-700 rounded-lg">
                           <div className="flex items-center gap-2 min-w-0">
-                            <div className="w-8 h-8 rounded-full bg-blue-600 flex items-center justify-center text-white text-xs font-bold flex-shrink-0">
-                              {req.name.charAt(0)}
-                            </div>
+                            <ProfileAvatar name={req.name} picture={req.picture || null} className="w-8 h-8 flex-shrink-0" textClass="text-xs" />
                             <span className="text-sm font-medium text-white truncate">{req.name}</span>
                           </div>
                           <div className="flex items-center gap-2">
-                            <button 
+                            <button
                               onClick={() => admitParticipant(req.id)}
                               className="bg-blue-600 text-white px-3 py-1.5 rounded-md text-xs font-semibold hover:bg-blue-500 transition-colors inline-flex items-center gap-1"
                             >
@@ -372,23 +368,28 @@ export default function MeetingRoom() {
                 </div>
               )}
 
-              {/* In Call Section */}
               <div>
                 <h3 className="text-sm font-bold text-gray-400 uppercase tracking-wider text-xs mb-3">In Call</h3>
                 <div className="space-y-3">
                   <div className="flex items-center gap-3 py-2">
-                    <div className="w-8 h-8 rounded-full bg-indigo-600 flex items-center justify-center text-white text-xs font-bold">
-                      {(displayName || 'You').charAt(0).toUpperCase()}
-                    </div>
+                    <ProfileAvatar
+                      name={displayName || 'You'}
+                      picture={currentUser?.picture || null}
+                      className="w-8 h-8 flex-shrink-0"
+                      textClass="text-xs"
+                    />
                     <span className="text-sm font-medium text-white">
                       {displayName || 'You'} {isHost ? '(Host)' : '(You)'}
                     </span>
                   </div>
-                  {inCallParticipantIds.map(peerId => (
+                  {inCallParticipantIds.map((peerId) => (
                     <div key={peerId} className="flex items-center gap-3 py-2">
-                      <div className="w-8 h-8 rounded-full bg-gray-600 flex items-center justify-center text-white text-xs font-bold">
-                        {(participantsMetadata[peerId]?.name || 'Participant').charAt(0)}
-                      </div>
+                      <ProfileAvatar
+                        name={participantsMetadata[peerId]?.name || 'Participant'}
+                        picture={participantsMetadata[peerId]?.picture || null}
+                        className="w-8 h-8 flex-shrink-0"
+                        textClass="text-xs"
+                      />
                       <span className="text-sm font-medium text-white">
                         {participantsMetadata[peerId]?.name || 'Participant'}
                         {participantsMetadata[peerId]?.role === 'host' ? ' (Host)' : ''}
@@ -401,13 +402,12 @@ export default function MeetingRoom() {
           </aside>
         )}
 
-        {/* Join Requests Overlay (for Host) - Kept as a toast-like notification if sidebar is closed */}
         {shouldShowHostControls && activeJoinRequests.length > 0 && !isPeopleOpen && (
           <div className="fixed top-20 right-4 z-50 w-72 animate-in slide-in-from-right duration-500">
             <div className="bg-white rounded-2xl shadow-2xl p-4 border border-gray-200">
               <div className="flex items-center justify-between mb-3">
                 <h3 className="text-gray-800 font-bold text-sm">Join requests</h3>
-                <button 
+                <button
                   onClick={() => setIsPeopleOpen(true)}
                   className="bg-blue-100 text-blue-600 px-3 py-0.5 rounded-full text-xs font-bold hover:bg-blue-200"
                 >

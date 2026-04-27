@@ -6,6 +6,7 @@ import uvicorn
 from dotenv import load_dotenv
 
 from core.database import init_db
+from core.reminders import start_calendar_reminder_worker, stop_calendar_reminder_worker
 from routers import auth, meeting, signaling, calendar
 
 # Configure logging
@@ -55,6 +56,16 @@ app.include_router(meeting.router)
 app.include_router(signaling.router)
 app.include_router(calendar.router)
 app.include_router(auth.router)
+
+
+@app.on_event("startup")
+async def startup_background_workers():
+    start_calendar_reminder_worker()
+
+
+@app.on_event("shutdown")
+async def shutdown_background_workers():
+    stop_calendar_reminder_worker()
 
 @app.get("/")
 async def root():

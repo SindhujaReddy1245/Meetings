@@ -3,6 +3,7 @@ import { format } from 'date-fns';
 import { useEffect, useMemo, useState } from 'react';
 import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { getMeetingPreferences, getTranslator, saveMeetingPreferences } from '../utils/meetingUtils';
+import ProfileAvatar from './ProfileAvatar';
 
 export default function MeetingHeader({ onOpenChatbot, toggleSidebar }) {
   const navigate = useNavigate();
@@ -148,23 +149,13 @@ export default function MeetingHeader({ onOpenChatbot, toggleSidebar }) {
                 className="w-10 h-10 bg-emerald-600 rounded-full flex items-center justify-center border-2 border-white shadow-sm cursor-pointer overflow-hidden"
                 onClick={() => setIsProfileOpen((prev) => !prev)}
               >
-                {user?.picture ? (
-                  <img src={user.picture} alt={user.name || 'User'} className="w-full h-full object-cover" />
-                ) : (
-                  <User size={20} className="text-white" />
-                )}
+                <ProfileAvatar name={user?.name || user?.email} picture={user?.picture} />
               </button>
 
               {isProfileOpen && (
                 <div className="absolute right-0 top-12 w-72 rounded-2xl border border-gray-200 bg-white p-4 shadow-xl">
                   <div className="flex items-center gap-3">
-                    <div className="h-12 w-12 rounded-full bg-emerald-600 overflow-hidden flex items-center justify-center">
-                      {user?.picture ? (
-                        <img src={user.picture} alt={user.name || 'User'} className="w-full h-full object-cover" />
-                      ) : (
-                        <User size={22} className="text-white" />
-                      )}
-                    </div>
+                    <ProfileAvatar name={user?.name || user?.email} picture={user?.picture} className="h-12 w-12" textClass="text-base" />
                     <div className="min-w-0">
                       <div className="font-medium text-gray-800 truncate">{user?.name || 'Guest User'}</div>
                       <div className="text-sm text-gray-500 truncate">{user?.email || 'No email'}</div>

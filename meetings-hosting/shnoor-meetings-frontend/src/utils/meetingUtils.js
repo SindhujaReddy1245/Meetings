@@ -1,5 +1,6 @@
 const MEETING_PREFERENCES_KEY = 'shnoor_meeting_preferences';
 const CALL_HISTORY_KEY = 'shnoor_call_history';
+const PREJOIN_STREAMS = new Map();
 
 const defaultPreferences = {
   microphoneId: 'default',
@@ -104,14 +105,10 @@ export function getPreferredMediaConstraints() {
   const preferences = getMeetingPreferences();
 
   return {
-    audio: !preferences.microphoneEnabled
-      ? false
-      : preferences.microphoneId && preferences.microphoneId !== 'default'
+    audio: preferences.microphoneId && preferences.microphoneId !== 'default'
       ? { deviceId: { exact: preferences.microphoneId } }
       : true,
-    video: !preferences.cameraEnabled
-      ? false
-      : preferences.cameraId && preferences.cameraId !== 'default'
+    video: preferences.cameraId && preferences.cameraId !== 'default'
       ? { deviceId: { exact: preferences.cameraId } }
       : true,
   };
@@ -216,16 +213,21 @@ export function formatDuration(durationMs = 0) {
 }
 
 export function getPreJoinMediaState(roomId) {
+  const defaultMediaState = {
+    audioEnabled: getMeetingPreferences().microphoneEnabled !== false,
+    videoEnabled: getMeetingPreferences().cameraEnabled !== false,
+  };
+
   if (!roomId) {
-    return { audioEnabled: true, videoEnabled: true };
+    return defaultMediaState;
   }
 
   try {
     const stored = sessionStorage.getItem(`meeting_prejoin_media_${roomId}`);
-    return stored ? { audioEnabled: true, videoEnabled: true, ...JSON.parse(stored) } : { audioEnabled: true, videoEnabled: true };
+    return stored ? { ...defaultMediaState, ...JSON.parse(stored) } : defaultMediaState;
   } catch (error) {
     console.error('Failed to read pre-join media state:', error);
-    return { audioEnabled: true, videoEnabled: true };
+    return defaultMediaState;
   }
 }
 
@@ -240,4 +242,30 @@ export function savePreJoinMediaState(roomId, nextState) {
   };
 
   sessionStorage.setItem(`meeting_prejoin_media_${roomId}`, JSON.stringify(mergedState));
+}
+
+export function cachePreJoinStream(roomId, stream) {
+  if (!roomId || !stream) {
+    return;
+  }
+
+  PREJOIN_STREAMS.set(roomId, stream);
+}
+
+export function consumePreJoinStream(roomId) {
+  if (!roomId) {
+    return null;
+  }
+
+  const stream = PREJOIN_STREAMS.get(roomId) || null;
+  PREJOIN_STREAMS.delete(roomId);
+  return stream;
+}
+
+export function clearPreJoinStream(roomId) {
+  if (!roomId) {
+    return;
+  }
+
+  PREJOIN_STREAMS.delete(roomId);
 }
