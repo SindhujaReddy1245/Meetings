@@ -56,7 +56,6 @@ function VideoPlayer({
   const hasLiveVideoTrack = hasUsableVideo(stream);
   const shouldShowVideo = Boolean(isVideoEnabled) && hasLiveVideoTrack;
   const ringStrength = Math.max(0, Math.min(audioLevel * 18, 1));
-  const pulseScale = 1 + Math.min(audioLevel * 3.2, 0.5);
 
   useEffect(() => {
     setVideoReady(false);
@@ -82,7 +81,7 @@ function VideoPlayer({
           featured ? 'w-full h-full rounded-3xl bg-black' : 'w-full aspect-video rounded-2xl bg-gray-800'
         } ${
           isSpeaking
-            ? 'border-emerald-300 shadow-[0_0_0_4px_rgba(52,211,153,0.24),0_0_35px_rgba(52,211,153,0.22)]'
+            ? 'border-white/20 shadow-[0_0_0_1px_rgba(255,255,255,0.14)]'
             : 'border-gray-700/50 shadow-2xl'
         }`}
       >
@@ -101,46 +100,36 @@ function VideoPlayer({
         ) : (
           <div className="absolute inset-0 flex items-center justify-center bg-[radial-gradient(circle_at_top,#31445f_0%,#1f2d44_45%,#142033_100%)]">
             <SpeakerBackdrop active={isSpeaking} featured={featured} />
-            {isSpeaking && (
-              <div className="absolute inset-0 flex items-center justify-center overflow-hidden">
+            <div className="relative z-10 flex items-center justify-center">
+              {isSpeaking && (
                 <div
-                  className={`rounded-full bg-white/20 ${featured ? 'h-72 w-72' : compact ? 'h-32 w-32' : 'h-52 w-52'}`}
+                  className={`pointer-events-none absolute rounded-full border-2 border-white/85 ${
+                    featured ? 'h-44 w-44 sm:h-52 sm:w-52' : compact ? 'h-20 w-20' : 'h-32 w-32'
+                  }`}
                   style={{
-                    transform: `scale(${pulseScale})`,
-                    transition: 'transform 140ms ease-out',
-                    filter: 'blur(0.2px)',
+                    animation: 'meetSpeakerRing 1.25s ease-in-out infinite',
+                    boxShadow: '0 0 0 1px rgba(255,255,255,0.22)',
                   }}
                 />
-              </div>
-            )}
-            <SpeakerHighlight active={isSpeaking} featured={featured} pulseTarget="avatar">
-              <div className="relative z-10">
-                <ProfileAvatar
-                  name={resolvedLabel}
-                  picture={resolvedPicture}
-                  className={featured ? 'h-36 w-36 sm:h-44 sm:w-44' : compact ? 'h-16 w-16' : 'h-24 w-24'}
-                  textClass={featured ? 'text-6xl' : compact ? 'text-2xl' : 'text-4xl'}
-                  ringClassName="border-2 border-white/60"
-                />
-              </div>
-            </SpeakerHighlight>
+              )}
+              <ProfileAvatar
+                name={resolvedLabel}
+                picture={resolvedPicture}
+                className={featured ? 'h-36 w-36 sm:h-44 sm:w-44' : compact ? 'h-16 w-16' : 'h-24 w-24'}
+                textClass={featured ? 'text-6xl' : compact ? 'text-2xl' : 'text-4xl'}
+                ringClassName="border-2 border-white/60"
+              />
+            </div>
           </div>
         )}
 
-        <div className="absolute top-4 left-4 z-10 flex items-center gap-2">
-          <ProfileAvatar
-            name={resolvedLabel}
-            picture={resolvedPicture}
-            className={compact ? 'h-10 w-10' : 'h-12 w-12'}
-            textClass={compact ? 'text-base' : 'text-lg'}
-            ringClassName={isSpeaking ? 'border-2 border-emerald-200/90' : 'border-2 border-white/70'}
-          />
-          {isHost && (
+        {isHost && (
+          <div className="absolute top-4 left-4 z-10 flex items-center gap-2">
             <span className="rounded-full bg-black/60 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-white/85 backdrop-blur-md">
               Host
             </span>
-          )}
-        </div>
+          </div>
+        )}
 
         {!isAudioEnabled && (
           <div className="absolute top-4 right-4 rounded-full bg-black/55 p-2 text-white shadow-lg z-10">
@@ -405,6 +394,10 @@ export default function VideoGrid({
         @keyframes speakerRing {
           0%, 100% { opacity: 0.35; transform: scale(0.99); }
           50% { opacity: 0.95; transform: scale(1.01); }
+        }
+        @keyframes meetSpeakerRing {
+          0%, 100% { transform: scale(0.96); opacity: 0.55; }
+          50% { transform: scale(1.10); opacity: 0.95; }
         }
       `}</style>
       {remoteTiles.map((tile) => (

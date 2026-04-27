@@ -1,13 +1,11 @@
 export default function SpeakerHighlight({
   active = false,
   featured = false,
-  pulseTarget = 'tile',
+  pulseTarget = 'none',
   children,
 }) {
-  const pulseClass = active
-    ? pulseTarget === 'avatar'
-      ? 'animate-[speakerAvatarPulse_1.15s_ease-in-out_infinite]'
-      : 'animate-[speakerTilePulse_1.15s_ease-in-out_infinite]'
+  const pulseClass = active && pulseTarget === 'avatar'
+    ? 'animate-[speakerAvatarPulse_1.15s_ease-in-out_infinite]'
     : '';
 
   return (
@@ -15,11 +13,11 @@ export default function SpeakerHighlight({
       {active && (
         <>
           <div
-            className={`pointer-events-none absolute inset-0 rounded-[inherit] border border-emerald-300/80 shadow-[0_0_0_1px_rgba(110,231,183,0.65),0_0_36px_rgba(52,211,153,0.35)] ${
-              featured ? 'animate-[speakerRing_1.2s_ease-in-out_infinite]' : 'animate-[speakerRing_1.35s_ease-in-out_infinite]'
-            }`}
+            className={`pointer-events-none absolute inset-0 rounded-[inherit] border ${
+              featured ? 'border-white/20' : 'border-white/18'
+            } shadow-[0_0_0_1px_rgba(255,255,255,0.10)]`}
           />
-          <div className="pointer-events-none absolute inset-0 rounded-[inherit] bg-emerald-300/8" />
+          <div className="pointer-events-none absolute inset-0 rounded-[inherit] bg-white/5" />
         </>
       )}
       {children}
