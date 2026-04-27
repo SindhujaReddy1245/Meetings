@@ -49,6 +49,7 @@ export default function MeetingRoom() {
   const prevJoinRequestsCount = useRef(0);
   const [isCaptionsOn, setIsCaptionsOn] = useState(false);
   const [currentCaptionText, setCurrentCaptionText] = useState('');
+  const [actionStatus, setActionStatus] = useState('');
   const recognitionRef = useRef(null);
   const [chatInput, setChatInput] = useState('');
   const [copyStatus, setCopyStatus] = useState('');
@@ -112,6 +113,15 @@ export default function MeetingRoom() {
   }, [messages, isChatOpen]);
 
   useEffect(() => {
+    if (!actionStatus) {
+      return undefined;
+    }
+
+    const timer = window.setTimeout(() => setActionStatus(''), 2500);
+    return () => window.clearTimeout(timer);
+  }, [actionStatus]);
+
+  useEffect(() => {
     if (isCaptionsOn) {
       const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
       if (SpeechRecognition) {
@@ -134,20 +144,26 @@ export default function MeetingRoom() {
 
         recognitionRef.current.onerror = (event) => {
           console.error('Speech recognition error', event.error);
+          setActionStatus(`Translation error: ${event.error}`);
+          setIsCaptionsOn(false);
         };
 
         try {
           recognitionRef.current.start();
+          setActionStatus('Translation started.');
         } catch (e) {
           console.error('Could not start recognition', e);
+          setActionStatus('Unable to start translation.');
+          setIsCaptionsOn(false);
         }
       } else {
-        alert('Your browser does not support live captions.');
+        setActionStatus('Translation is not supported in this browser.');
         setIsCaptionsOn(false);
       }
     } else if (recognitionRef.current) {
       recognitionRef.current.stop();
       setCurrentCaptionText('');
+      setActionStatus('Translation stopped.');
     }
 
     return () => {
@@ -156,6 +172,15 @@ export default function MeetingRoom() {
       }
     };
   }, [isCaptionsOn]);
+
+  useEffect(() => {
+    const handleScreenShareError = (event) => {
+      setActionStatus(event.detail?.message || 'Screen share failed.');
+    };
+
+    window.addEventListener('meeting-screen-share-error', handleScreenShareError);
+    return () => window.removeEventListener('meeting-screen-share-error', handleScreenShareError);
+  }, []);
 
   const copyText = async (value, successMessage) => {
     try {
@@ -204,6 +229,9 @@ export default function MeetingRoom() {
       </header>
       {copyStatus && (
         <div className="px-4 pt-2 text-xs text-blue-300">{copyStatus}</div>
+      )}
+      {actionStatus && (
+        <div className="px-4 pt-1 text-xs text-amber-300">{actionStatus}</div>
       )}
 
       <div className="flex-1 flex overflow-hidden p-4 relative w-full h-full gap-4">

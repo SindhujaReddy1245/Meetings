@@ -838,7 +838,11 @@ export function useWebRTC(roomId, options = {}) {
           const videoSender = pc.getSenders().find((sender) => sender.track?.kind === 'video');
           if (videoSender) {
             videoSender.replaceTrack(screenTrack);
+            return;
           }
+
+          // Some peer connections may not have an active video sender yet.
+          pc.addTrack(screenTrack, screenStream);
         });
 
         screenTrack.onended = () => {
@@ -872,6 +876,13 @@ export function useWebRTC(roomId, options = {}) {
       }
     } catch (error) {
       console.error('Error sharing screen:', error);
+      window.dispatchEvent(new CustomEvent('meeting-screen-share-error', {
+        detail: {
+          message: error?.name === 'NotAllowedError'
+            ? 'Screen share permission denied.'
+            : 'Unable to start screen share.',
+        },
+      }));
     }
   }, [isHandRaised, isSharingScreen, localStream, sendSignalingMessage, stopScreenShare, isAudioEnabled, isVideoEnabled]);
 
