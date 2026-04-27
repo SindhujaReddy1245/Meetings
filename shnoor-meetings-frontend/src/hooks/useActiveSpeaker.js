@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 
-const LEVEL_THRESHOLD = 0.04;
+// RMS levels from getByteTimeDomainData are typically small; keep this low for reliable speech detection.
+const LEVEL_THRESHOLD = 0.015;
 const SPEAKING_HANG_MS = 420;
 const DOMINANT_HOLD_MS = 650;
 const TICK_MS = 300;
@@ -49,11 +50,12 @@ export default function useActiveSpeaker(tiles, getPeerConnection) {
       try {
         const source = audioContext.createMediaStreamSource(new MediaStream(audioTracks));
         const analyser = audioContext.createAnalyser();
+        // Time-domain RMS tends to be more stable for speech detection than frequency averages.
         analyser.fftSize = 1024;
-        analyser.smoothingTimeConstant = 0.82;
+        analyser.smoothingTimeConstant = 0.6;
         source.connect(analyser);
         analysers.set(tile.id, { analyser, source });
-        buffers.set(tile.id, new Uint8Array(analyser.frequencyBinCount));
+        buffers.set(tile.id, new Uint8Array(analyser.fftSize));
       } catch (error) {
         console.warn('Unable to initialize active speaker monitoring for', tile.id, error);
       }
@@ -76,14 +78,19 @@ export default function useActiveSpeaker(tiles, getPeerConnection) {
 
         if (analyserEntry) {
           const buffer = buffers.get(tile.id);
-          analyserEntry.analyser.getByteFrequencyData(buffer);
-          const total = buffer.reduce((sum, value) => sum + value, 0);
-          analyserLevel = total / (buffer.length * 255);
+          analyserEntry.analyser.getByteTimeDomainData(buffer);
+          // Compute RMS around 128 (silence). Normalized to 0..1-ish.
+          let sumSquares = 0;
+          for (let i = 0; i < buffer.length; i += 1) {
+            const centered = (buffer[i] - 128) / 128;
+            sumSquares += centered * centered;
+          }
+          analyserLevel = Math.sqrt(sumSquares / buffer.length);
         }
 
         const rawLevel = analyserLevel;
         const previousSmoothed = refs.current.smoothedLevels[tile.id] || 0;
-        const smoothedLevel = (previousSmoothed * 0.58) + (rawLevel * 0.42);
+        const smoothedLevel = (previousSmoothed * 0.68) + (rawLevel * 0.32);
         refs.current.smoothedLevels[tile.id] = smoothedLevel;
         levels[tile.id] = smoothedLevel;
 

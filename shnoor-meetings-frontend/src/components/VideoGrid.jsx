@@ -78,7 +78,7 @@ function VideoPlayer({
     <SpeakerHighlight active={isSpeaking} featured={featured}>
       <div
         className={`relative overflow-hidden border group flex items-center justify-center transition-all duration-500 ${
-          featured ? 'w-full h-full rounded-3xl bg-black' : 'w-full aspect-video rounded-2xl bg-gray-800'
+          featured ? 'w-full h-full rounded-3xl bg-black' : 'w-full aspect-video rounded-2xl bg-[radial-gradient(circle_at_top,#31445f_0%,#1f2d44_45%,#142033_100%)]'
         } ${
           isSpeaking
             ? 'border-white/20 shadow-[0_0_0_1px_rgba(255,255,255,0.14)]'
@@ -98,7 +98,7 @@ function VideoPlayer({
             style={{ visibility: videoReady ? 'visible' : 'visible' }}
           />
         ) : (
-          <div className="absolute inset-0 flex items-center justify-center bg-[radial-gradient(circle_at_top,#31445f_0%,#1f2d44_45%,#142033_100%)]">
+          <div className="absolute inset-0 flex items-center justify-center">
             <SpeakerBackdrop active={isSpeaking} featured={featured} />
             <div className="relative z-10 flex items-center justify-center">
               {isSpeaking && (
