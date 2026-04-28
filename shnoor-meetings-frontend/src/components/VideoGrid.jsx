@@ -40,6 +40,7 @@ function VideoPlayer({
   isVideoEnabled = true,
   isAudioEnabled = true,
   featured = false,
+  forceAvatarOnly = false,
 }) {
   const videoRef = useRef(null);
   const [videoReady, setVideoReady] = useState(false);
@@ -51,12 +52,12 @@ function VideoPlayer({
   const loggedInUser = getCurrentUser();
   const resolvedPicture = isLocal ? (picture || loggedInUser?.picture || null) : picture;
   const resolvedLabel = isLocal ? (label || loggedInUser?.name || loggedInUser?.email || 'You') : label;
-  const shouldShowVideo = Boolean(isVideoEnabled) && hasLiveVideoTrackState && (isLocal || !isRemoteVideoSuppressed);
+  const shouldShowVideo = !forceAvatarOnly && Boolean(isVideoEnabled) && hasLiveVideoTrackState && (isLocal || !isRemoteVideoSuppressed);
   const ringStrength = Math.max(0, Math.min(audioLevel * 18, 1));
   const showVideo = shouldShowVideo && videoReady && isVideoRendering;
   // Remote video element should mount only when frames are actually rendering;
   // this avoids black tiles on host view while the stream is still warming up.
-  const shouldRenderVideoElement = isLocal ? shouldShowVideo : showVideo;
+  const shouldRenderVideoElement = !forceAvatarOnly && (isLocal ? shouldShowVideo : showVideo);
 
   useEffect(() => {
     const videoTrack = stream?.getVideoTracks?.()[0] || null;
@@ -553,6 +554,7 @@ export default function VideoGrid({
               audioLevel={audioLevels[tile.id] || 0}
               isAudioEnabled={tile.isAudioEnabled}
               isVideoEnabled={tile.isVideoEnabled}
+              forceAvatarOnly={!tile.isLocal && localIsHost}
             />
           </button>
         ))}
