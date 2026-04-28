@@ -311,6 +311,49 @@ export function useWebRTC(roomId, options = {}) {
     };
 
     pc.ontrack = (event) => {
+      const incomingTrack = event.track;
+
+      if (incomingTrack?.kind === 'video') {
+        const forceRemoteVideoOff = () => {
+          setParticipantsMetadata((prev) => ({
+            ...prev,
+            [peerId]: {
+              ...prev[peerId],
+              hasPublishedMediaState: true,
+              isVideoEnabled: false,
+            },
+          }));
+        };
+
+        // Conservative guard: if remote video track mutes/ends, always switch tile to avatar.
+        incomingTrack.addEventListener('mute', forceRemoteVideoOff);
+        incomingTrack.addEventListener('ended', forceRemoteVideoOff);
+
+        if (incomingTrack.readyState !== 'live' || incomingTrack.muted) {
+          forceRemoteVideoOff();
+        }
+      }
+
+      if (incomingTrack?.kind === 'audio') {
+        const forceRemoteAudioOff = () => {
+          setParticipantsMetadata((prev) => ({
+            ...prev,
+            [peerId]: {
+              ...prev[peerId],
+              hasPublishedMediaState: true,
+              isAudioEnabled: false,
+            },
+          }));
+        };
+
+        incomingTrack.addEventListener('mute', forceRemoteAudioOff);
+        incomingTrack.addEventListener('ended', forceRemoteAudioOff);
+
+        if (incomingTrack.readyState !== 'live' || incomingTrack.muted) {
+          forceRemoteAudioOff();
+        }
+      }
+
       setRemoteStreams((prev) => {
         const nextStream = prev[peerId] ? new MediaStream(prev[peerId].getTracks()) : new MediaStream();
         const replaceTrackByKind = (trackToAdd) => {
