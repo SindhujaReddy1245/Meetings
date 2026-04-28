@@ -188,8 +188,10 @@ export function useWebRTC(roomId, options = {}) {
     const videoTrack = stream?.getVideoTracks?.()[0];
 
     return {
-      // Do not check `muted` — local tracks can be briefly muted by the browser
-      // during device switches and it does not mean the user turned off their camera/mic.
+      // Do NOT check .muted here — on a local track, muted=true can transiently occur
+      // during browser media negotiation even when the user has not muted themselves.
+      // Using it here causes syncParticipantState to broadcast the wrong isVideoEnabled
+      // value to remote peers, making their tile show black instead of the avatar.
       audioEnabled: audioTrack
         ? (audioTrack.readyState === 'live' && audioTrack.enabled)
         : false,
@@ -328,47 +330,12 @@ export function useWebRTC(roomId, options = {}) {
     pc.ontrack = (event) => {
       const incomingTrack = event.track;
 
-      if (incomingTrack?.kind === 'video') {
-        const forceRemoteVideoOff = () => {
-          setParticipantsMetadata((prev) => ({
-            ...prev,
-            [peerId]: {
-              ...prev[peerId],
-              hasPublishedMediaState: true,
-              isVideoEnabled: false,
-            },
-          }));
-        };
-
-        // Only force video off when the track fully ends, NOT on mute.
-        // Remote tracks fire `mute` on every network hiccup and at stream startup —
-        // treating that as camera-off causes tiles to go black during normal operation.
-        incomingTrack.addEventListener('ended', forceRemoteVideoOff);
-
-        if (incomingTrack.readyState !== 'live') {
-          forceRemoteVideoOff();
-        }
-      }
-
-      if (incomingTrack?.kind === 'audio') {
-        const forceRemoteAudioOff = () => {
-          setParticipantsMetadata((prev) => ({
-            ...prev,
-            [peerId]: {
-              ...prev[peerId],
-              hasPublishedMediaState: true,
-              isAudioEnabled: false,
-            },
-          }));
-        };
-
-        // Same reasoning — only react to track ending, not mute events.
-        incomingTrack.addEventListener('ended', forceRemoteAudioOff);
-
-        if (incomingTrack.readyState !== 'live') {
-          forceRemoteAudioOff();
-        }
-      }
+      // NOTE: Do NOT listen to track 'mute'/'ended' events here to force isVideoEnabled/isAudioEnabled
+      // to false in participantsMetadata. The remote track's .muted property fires during normal
+      // network buffering — it does NOT mean the remote peer turned their camera/mic off.
+      // Camera/mic state for remote peers comes exclusively from 'participant-update' signaling messages.
+      // Overriding metadata here causes the tile to flash black and then correct itself on the
+      // next heartbeat (1.5s), creating a persistent flicker.
 
       setRemoteStreams((prev) => {
         const nextStream = prev[peerId] ? new MediaStream(prev[peerId].getTracks()) : new MediaStream();
@@ -431,33 +398,6 @@ export function useWebRTC(roomId, options = {}) {
     const isTargetedToCurrentClient = !target
       || target === clientId.current
       || (currentMeetingUserId && target === currentMeetingUserId);
-
-    // ── Handle admission messages BEFORE any sender/target guards ───────────────
-    // The server sends admit/accepted/deny directly to the participant with no
-    // sender field, so peerId resolves to undefined and the guards below would
-    // silently drop the message — meaning the participant never gets redirected.
-    if (type === 'admit' || type === 'accepted') {
-      sessionStorage.setItem(`meeting_admitted_${roomId}`, 'true');
-      window.dispatchEvent(new CustomEvent('meeting-admitted', { detail: { roomId } }));
-      return;
-    }
-
-    if (type === 'deny') {
-      window.dispatchEvent(new CustomEvent('meeting-denied', { detail: { roomId } }));
-      return;
-    }
-
-    if (type === 'join-blocked') {
-      joinedRoomRef.current = false;
-      if (participantStateHeartbeatRef.current) {
-        window.clearInterval(participantStateHeartbeatRef.current);
-        participantStateHeartbeatRef.current = null;
-      }
-      sessionStorage.removeItem(`meeting_admitted_${roomId}`);
-      window.dispatchEvent(new CustomEvent('meeting-denied', { detail: { roomId } }));
-      return;
-    }
-    // ────────────────────────────────────────────────────────────────────────────
 
     if (peerId === clientId.current) {
       return;
@@ -702,6 +642,21 @@ export function useWebRTC(roomId, options = {}) {
         setActiveJoinRequests(Array.isArray(data.requests) ? data.requests : []);
         break;
 
+      case 'admit':
+      case 'accepted':
+        sessionStorage.setItem(`meeting_admitted_${roomId}`, 'true');
+        window.dispatchEvent(new CustomEvent('meeting-admitted', { detail: { roomId } }));
+        break;
+
+      case 'deny':
+        window.dispatchEvent(new CustomEvent('meeting-denied', { detail: { roomId } }));
+        break;
+
+      case 'join-blocked':
+        sessionStorage.removeItem(`meeting_admitted_${roomId}`);
+        window.dispatchEvent(new CustomEvent('meeting-denied', { detail: { roomId } }));
+        break;
+
       default:
         break;
     }
@@ -794,10 +749,8 @@ export function useWebRTC(roomId, options = {}) {
 
             if (isMounted) {
               setLocalStream(stream);
-              // Use .enabled directly — do not check .muted as it can be briefly
-              // true during device initialisation and would incorrectly show camera as off.
-              setIsAudioEnabled(audioTrack ? audioTrack.enabled : false);
-              setIsVideoEnabled(videoTrack ? videoTrack.enabled : false);
+              setIsAudioEnabled(audioTrack ? (audioTrack.enabled && audioTrack.muted !== true) : false);
+              setIsVideoEnabled(videoTrack ? (videoTrack.enabled && videoTrack.muted !== true) : false);
             }
           } catch (mediaAcquisitionError) {
             console.error('Error accessing media devices.', mediaAcquisitionError);
@@ -984,6 +937,7 @@ export function useWebRTC(roomId, options = {}) {
             return;
           }
 
+          // Some peer connections may not have an active video sender yet.
           pc.addTrack(screenTrack, screenStream);
         });
 
@@ -1068,7 +1022,6 @@ export function useWebRTC(roomId, options = {}) {
   }, [addMessage, sendSignalingMessage]);
 
   const getPeerConnection = useCallback((peerId) => peerConnections.current[peerId] || null, []);
-
   const leaveRoom = useCallback(() => {
     cleanupConnection();
   }, [cleanupConnection]);
