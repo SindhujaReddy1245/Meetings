@@ -184,12 +184,12 @@ export function useWebRTC(roomId, options = {}) {
     return {
       audioEnabled: audioTrack
         ? (audioTrack.readyState === 'live' && audioTrack.enabled)
-        : isAudioEnabled,
+        : false,
       videoEnabled: videoTrack
         ? (videoTrack.readyState === 'live' && videoTrack.enabled)
-        : isVideoEnabled,
+        : false,
     };
-  }, [isAudioEnabled, isVideoEnabled, localStream]);
+  }, [localStream]);
 
   const syncParticipantState = useCallback((extraState = {}) => {
     if (!joinedRoomRef.current) {
