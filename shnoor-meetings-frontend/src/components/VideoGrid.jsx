@@ -189,9 +189,12 @@ function VideoPlayer({
       // Count down the startup grace period before enforcing any black-frame checks.
       if (startupGraceTicks > 0) {
         startupGraceTicks -= 1;
-        // During grace period: show video as soon as we have valid dimensions + advancing frames.
-        if (hasDims && advanced) {
+        // During grace period, keep remote tiles on avatar to avoid brief black flashes.
+        // Local tile can render immediately once frames advance.
+        if (isLocal && hasDims && advanced) {
           markRendering();
+        } else if (!isLocal) {
+          unmarkRendering();
         }
         return;
       }
@@ -246,13 +249,15 @@ function VideoPlayer({
         } catch {
           // Canvas probe failed (cross-origin or GPU issue). Don't aggressively hide
           // the video — leave current state as-is to avoid flickering to black.
-          if (!alreadyRendering && hasDims && advanced) {
+          if (isLocal && !alreadyRendering && hasDims && advanced) {
             markRendering();
           }
         }
       } else if (hasDims && advanced) {
         // No probe context available but we have real frames advancing — show the video.
-        markRendering();
+        if (isLocal) {
+          markRendering();
+        }
       }
     }, 250);
 
