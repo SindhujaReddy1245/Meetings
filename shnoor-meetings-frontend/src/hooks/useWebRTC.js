@@ -284,32 +284,6 @@ export function useWebRTC(roomId, options = {}) {
     };
 
     pc.ontrack = (event) => {
-      const incomingTrack = event.track;
-      const kind = incomingTrack?.kind;
-
-      const updateRemoteMediaState = (nextState) => {
-        setParticipantsMetadata((prev) => ({
-          ...prev,
-          [peerId]: {
-            ...prev[peerId],
-            ...nextState,
-          },
-        }));
-      };
-
-      if (incomingTrack && kind === 'video') {
-        // Keep participant tile state aligned with actual remote track lifecycle.
-        incomingTrack.onmute = () => updateRemoteMediaState({ isVideoEnabled: false });
-        incomingTrack.onunmute = () => updateRemoteMediaState({ isVideoEnabled: true });
-        incomingTrack.onended = () => updateRemoteMediaState({ isVideoEnabled: false });
-      }
-
-      if (incomingTrack && kind === 'audio') {
-        incomingTrack.onmute = () => updateRemoteMediaState({ isAudioEnabled: false });
-        incomingTrack.onunmute = () => updateRemoteMediaState({ isAudioEnabled: true });
-        incomingTrack.onended = () => updateRemoteMediaState({ isAudioEnabled: false });
-      }
-
       setRemoteStreams((prev) => {
         const nextStream = prev[peerId] ? new MediaStream(prev[peerId].getTracks()) : new MediaStream();
         const replaceTrackByKind = (trackToAdd) => {
@@ -339,13 +313,6 @@ export function useWebRTC(roomId, options = {}) {
           [peerId]: nextStream,
         };
       });
-
-      if (incomingTrack?.kind === 'video' && incomingTrack.readyState === 'live' && !incomingTrack.muted) {
-        updateRemoteMediaState({ isVideoEnabled: true });
-      }
-      if (incomingTrack?.kind === 'audio' && incomingTrack.readyState === 'live' && !incomingTrack.muted) {
-        updateRemoteMediaState({ isAudioEnabled: true });
-      }
     };
 
     peerConnections.current[peerId] = pc;
