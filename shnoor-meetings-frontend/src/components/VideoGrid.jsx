@@ -45,10 +45,12 @@ function VideoPlayer({
   const [videoReady, setVideoReady] = useState(false);
   const [isVideoRendering, setIsVideoRendering] = useState(false);
   const [hasLiveVideoTrackState, setHasLiveVideoTrackState] = useState(false);
+  const [isRemoteVideoSuppressed, setIsRemoteVideoSuppressed] = useState(false);
+  const lastVideoTrackIdRef = useRef(null);
   const loggedInUser = getCurrentUser();
   const resolvedPicture = isLocal ? (picture || loggedInUser?.picture || null) : picture;
   const resolvedLabel = isLocal ? (label || loggedInUser?.name || loggedInUser?.email || 'You') : label;
-  const shouldShowVideo = Boolean(isVideoEnabled) && hasLiveVideoTrackState;
+  const shouldShowVideo = Boolean(isVideoEnabled) && hasLiveVideoTrackState && (isLocal || !isRemoteVideoSuppressed);
   const ringStrength = Math.max(0, Math.min(audioLevel * 18, 1));
   const showVideo = shouldShowVideo && videoReady && isVideoRendering;
   const shouldRenderVideoElement = isLocal ? shouldShowVideo : showVideo;
@@ -59,7 +61,19 @@ function VideoPlayer({
     if (!videoTrack) {
       setHasLiveVideoTrackState(false);
       setIsVideoRendering(false);
+      if (!isLocal) {
+        setIsRemoteVideoSuppressed(false);
+      }
+      lastVideoTrackIdRef.current = null;
       return undefined;
+    }
+
+    if (lastVideoTrackIdRef.current !== videoTrack.id) {
+      lastVideoTrackIdRef.current = videoTrack.id;
+      if (!isLocal) {
+        // New remote track means peer likely restarted camera; allow video again.
+        setIsRemoteVideoSuppressed(false);
+      }
     }
 
     const syncTrackState = () => {
@@ -72,6 +86,9 @@ function VideoPlayer({
       if (!hasLiveTrack) {
         // Immediately fall back to avatar tile instead of leaving a black video layer.
         setIsVideoRendering(false);
+        if (!isLocal) {
+          setIsRemoteVideoSuppressed(true);
+        }
       }
     };
 
@@ -87,7 +104,7 @@ function VideoPlayer({
       videoTrack.removeEventListener('ended', syncTrackState);
       window.clearInterval(intervalId);
     };
-  }, [stream]);
+  }, [isLocal, stream]);
 
   useEffect(() => {
     setVideoReady(false);
@@ -156,6 +173,9 @@ function VideoPlayer({
       if (stalledTicks >= 6) {
         suppressRenderingUntilHealthyFrame = true;
         setIsVideoRendering(false);
+        if (!isLocal) {
+          setIsRemoteVideoSuppressed(true);
+        }
       }
 
       // Detect persistent all-black video frames and fallback to avatar UI.
@@ -191,6 +211,9 @@ function VideoPlayer({
             if (blackFrameTicks >= 2) {
               suppressRenderingUntilHealthyFrame = true;
               setIsVideoRendering(false);
+              if (!isLocal) {
+                setIsRemoteVideoSuppressed(true);
+              }
             }
           } else {
             blackFrameTicks = 0;
@@ -207,6 +230,7 @@ function VideoPlayer({
             if (blackFrameTicks >= 2) {
               suppressRenderingUntilHealthyFrame = true;
               setIsVideoRendering(false);
+              setIsRemoteVideoSuppressed(true);
             }
           }
         }
@@ -221,7 +245,7 @@ function VideoPlayer({
       cancelled = true;
       if (intervalId) window.clearInterval(intervalId);
     };
-  }, [shouldShowVideo]);
+  }, [isLocal, shouldShowVideo]);
 
   useEffect(() => {
     const element = videoRef.current;
