@@ -51,9 +51,9 @@ function VideoPlayer({
   const shouldShowVideo = Boolean(isVideoEnabled) && hasLiveVideoTrackState;
   const ringStrength = Math.max(0, Math.min(audioLevel * 18, 1));
   const showVideo = shouldShowVideo && videoReady && isVideoRendering;
-  // Always mount the video element when video should be shown — for both local and remote.
-  // Previously remote tiles only mounted after isVideoRendering was true, creating a
-  // chicken-and-egg deadlock where the frame probe could never read any frames.
+  // Always render the <video> element whenever we want to show video (local or remote).
+  // Previously remote tiles only mounted the element after isVideoRendering was already true,
+  // creating a chicken-and-egg where the frame probe could never read any frames.
   const shouldRenderVideoElement = shouldShowVideo;
 
   useEffect(() => {
@@ -66,12 +66,22 @@ function VideoPlayer({
     }
 
     const syncTrackState = () => {
-      // Never use `muted` to determine track liveness — for remote tracks the browser
-      // sets muted=true on every network hiccup and at stream startup, not just camera-off.
-      // Camera-off is signalled via `isVideoEnabled` from participant-update messages.
-      const hasLiveTrack = videoTrack.readyState === 'live' && videoTrack.enabled !== false;
+      // For remote tracks, browser sets `muted = true` when no data has arrived yet —
+      // this is a network/buffering state, NOT the user's camera-off state.
+      // Only local tracks should use the muted flag as a signal.
+      const hasLiveTrack = isLocal
+        ? (
+          videoTrack.readyState === 'live'
+          && videoTrack.enabled !== false
+          && videoTrack.muted !== true
+        )
+        : (
+          videoTrack.readyState === 'live'
+          && videoTrack.enabled !== false
+        );
       setHasLiveVideoTrackState(hasLiveTrack);
       if (!hasLiveTrack) {
+        // Immediately fall back to avatar tile instead of leaving a black video layer.
         setIsVideoRendering(false);
       }
     };
@@ -128,9 +138,9 @@ function VideoPlayer({
     let intervalId = null;
     let alreadyRendering = false;
     // For remote tiles: allow a generous startup window before enforcing black-frame checks.
-    // This prevents the probe from killing the tile on the first few frames while the
-    // WebRTC stream is warming up.
-    let startupGraceTicks = isLocal ? 0 : 12; // 12 x 250ms = 3 seconds grace
+    // This prevents the probe from triggering on the first few frames before the video
+    // stream has fully warmed up, which caused remote tiles to go black immediately.
+    let startupGraceTicks = isLocal ? 0 : 12; // 12 × 250ms = 3 seconds grace
     const probeCanvas = document.createElement('canvas');
     const probeContext = probeCanvas.getContext('2d', { willReadFrequently: true });
     probeCanvas.width = 24;
@@ -148,6 +158,7 @@ function VideoPlayer({
       setIsVideoRendering(false);
     };
 
+    // Detect playback health and only render when frames are healthy.
     intervalId = window.setInterval(() => {
       if (cancelled) return;
 
@@ -164,16 +175,17 @@ function VideoPlayer({
         stableTicks = 0;
       }
 
-      // Count down grace period — show video as soon as frames are advancing.
+      // Count down the startup grace period before enforcing any black-frame checks.
       if (startupGraceTicks > 0) {
         startupGraceTicks -= 1;
+        // During grace period: show video as soon as we have valid dimensions + advancing frames.
         if (hasDims && advanced) {
           markRendering();
         }
         return;
       }
 
-      // Frames stalled for ~2s → avatar fallback.
+      // If frames stop advancing for ~2s (8 × 250ms), treat video as stalled → avatar fallback.
       if (stalledTicks >= 8) {
         consecutiveHealthyFrames = 0;
         unmarkRendering();
@@ -206,27 +218,30 @@ function VideoPlayer({
           if (looksBlack) {
             consecutiveHealthyFrames = 0;
             blackFrameTicks += 1;
-            // Require 6 consecutive black frames (~1.5s) before falling back to avatar,
-            // for both local and remote, to avoid false triggers on dark scenes or glitches.
+            // Only fall back to avatar after several consecutive black frames (not just 1-2)
+            // to avoid falsely hiding a valid dark scene.
             if (blackFrameTicks >= 6) {
               unmarkRendering();
             }
           } else {
             blackFrameTicks = 0;
             consecutiveHealthyFrames += 1;
+            // Require at least 2 consecutive healthy frames before marking as rendering,
+            // for both local and remote tiles.
             if (consecutiveHealthyFrames >= 2) {
               markRendering();
             }
           }
         } catch {
-          // Canvas probe failed (cross-origin or GPU issue).
-          // If frames are advancing just show the video for both local and remote.
+          // Canvas probe failed (cross-origin or GPU issue). For remote tiles, don't
+          // aggressively hide the video — just leave the current state as-is so the
+          // tile doesn't flicker to black unexpectedly.
           if (!alreadyRendering && hasDims && advanced) {
             markRendering();
           }
         }
       } else if (hasDims && advanced) {
-        // No probe context but frames are advancing — show the video.
+        // No probe context available but we have real frames advancing — show the video.
         markRendering();
       }
     }, 250);
@@ -245,7 +260,9 @@ function VideoPlayer({
 
     const handlePlaybackIssue = () => {
       setIsVideoRendering(false);
-      element.play().catch(() => {});
+      element.play().catch(() => {
+        // Keep avatar fallback visible if autoplay/playback can't recover immediately.
+      });
     };
 
     element.addEventListener('stalled', handlePlaybackIssue);
@@ -327,7 +344,9 @@ function VideoPlayer({
         )}
 
         <div className="absolute bottom-4 left-4 right-4 flex items-center justify-between">
-          <div className={`bg-black/60 backdrop-blur-md rounded-lg text-white font-semibold tracking-wide border border-white/10 shadow-lg ${'px-4 py-1.5 text-sm'}`}>
+          <div className={`bg-black/60 backdrop-blur-md rounded-lg text-white font-semibold tracking-wide border border-white/10 shadow-lg ${
+            'px-4 py-1.5 text-sm'
+          }`}>
             {resolvedLabel}
           </div>
 
@@ -335,7 +354,7 @@ function VideoPlayer({
             <div className="flex items-center gap-1 rounded-full bg-black/45 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.2em] text-emerald-100">
               <span
                 className="h-2 w-2 rounded-full bg-emerald-300"
-                style={{ boxShadow: `0 0 ${10 + (ringStrength * 16)}px rgba(110, 231, 183, 0.9)` }}
+              style={{ boxShadow: `0 0 ${10 + (ringStrength * 16)}px rgba(110, 231, 183, 0.9)` }}
               />
               Speaking
             </div>
@@ -367,6 +386,7 @@ export default function VideoGrid({
   localStream,
   remoteStreams,
   participantsMetadata = {},
+  localClientId = null,
   localHandRaised = false,
   localParticipantName = 'You',
   localParticipantPicture = null,
@@ -376,13 +396,26 @@ export default function VideoGrid({
   isVideoEnabled = true,
   getPeerConnection,
 }) {
+  // kept for future interactions (e.g. pin), but the UI stays in grid mode always
   const [selectedTile, setSelectedTile] = useState(null);
 
-  const remoteTiles = useMemo(() => (
-    Object.entries(remoteStreams).map(([peerId, stream]) => ({
+  const remoteTiles = useMemo(() => {
+    // Build from the union of remoteStreams AND participantsMetadata so that
+    // a participant who has joined (visible in metadata) but whose WebRTC stream
+    // hasn't arrived yet still gets a tile showing their avatar.
+    const remoteIds = new Set([
+      ...Object.keys(remoteStreams || {}),
+      ...Object.keys(participantsMetadata || {}),
+    ]);
+
+    // Always exclude the local client's own entry.
+    if (localClientId) remoteIds.delete(localClientId);
+    remoteIds.delete('local');
+
+    return Array.from(remoteIds).map((peerId) => ({
       hasPublishedMediaState: participantsMetadata[peerId]?.hasPublishedMediaState ?? false,
       id: peerId,
-      stream,
+      stream: remoteStreams[peerId] || null,
       label: participantsMetadata[peerId]?.name || 'Participant',
       picture: participantsMetadata[peerId]?.picture || null,
       isHandRaised: participantsMetadata[peerId]?.isHandRaised,
@@ -393,8 +426,8 @@ export default function VideoGrid({
         ? (participantsMetadata[peerId]?.isVideoEnabled ?? false)
         : false,
       isLocal: false,
-    }))
-  ), [participantsMetadata, remoteStreams]);
+    }));
+  }, [localClientId, participantsMetadata, remoteStreams]);
 
   const localTile = useMemo(() => ({
     id: 'local',
@@ -418,16 +451,26 @@ export default function VideoGrid({
   } = useActiveSpeaker(tilesForSpeaker, getPeerConnection);
 
   const standardGridTiles = useMemo(() => {
-    const tiles = [localTile, ...remoteTiles].filter((tile) => tile.stream);
+    // Local tile requires a stream to show (no stream = media not ready yet).
+    // Remote tiles show even without a stream — they display the avatar while
+    // the WebRTC connection is establishing, so the host sees the participant
+    // tile immediately after they join rather than it being invisible.
+    const tiles = [localTile, ...remoteTiles]
+      .filter((tile) => tile.isLocal ? tile.stream : tile.label)
+      .sort((left, right) => {
+        const leftLevel = audioLevels[left.id] || 0;
+        const rightLevel = audioLevels[right.id] || 0;
+        return rightLevel - leftLevel;
+      });
     if (tiles.length <= 1) return 'grid-cols-1 max-w-4xl';
     if (tiles.length === 2) return 'grid-cols-1 sm:grid-cols-2 max-w-6xl';
     if (tiles.length <= 4) return 'grid-cols-1 sm:grid-cols-2 max-w-6xl';
     return 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 max-w-7xl';
-  }, [localTile, remoteTiles]);
+  }, [audioLevels, localTile, remoteTiles]);
 
   const orderedStandardTiles = useMemo(() => (
     [localTile, ...remoteTiles]
-      .filter((tile) => tile.stream)
+      .filter((tile) => tile.isLocal ? tile.stream : tile.label)
       .sort((left, right) => {
         const leftLevel = audioLevels[left.id] || 0;
         const rightLevel = audioLevels[right.id] || 0;
