@@ -223,6 +223,24 @@ export default function LobbyPage() {
     };
   }, [roomId]);
 
+  useEffect(() => {
+    if (!isWaiting) {
+      return undefined;
+    }
+
+    // Fallback: if "meeting-admitted" event is missed, still enter once admitted flag is set.
+    const intervalId = window.setInterval(() => {
+      if (sessionStorage.getItem(`meeting_admitted_${roomId}`) === 'true') {
+        setIsWaiting(false);
+        joinMeetingRef.current?.();
+      }
+    }, 500);
+
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, [isWaiting, roomId]);
+
   const handleAskToJoin = () => {
     const trimmedName = participantName.trim() || currentUser?.name || 'Guest';
     setParticipantName(trimmedName);
