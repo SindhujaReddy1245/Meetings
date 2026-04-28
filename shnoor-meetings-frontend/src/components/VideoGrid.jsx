@@ -53,7 +53,7 @@ function VideoPlayer({
   const shouldShowVideo = Boolean(isVideoEnabled) && hasLiveVideoTrackState && (isLocal || !isRemoteVideoSuppressed);
   const ringStrength = Math.max(0, Math.min(audioLevel * 18, 1));
   const showVideo = shouldShowVideo && videoReady && isVideoRendering;
-  const shouldRenderVideoElement = isLocal ? shouldShowVideo : showVideo;
+  const shouldRenderVideoElement = shouldShowVideo;
 
   useEffect(() => {
     const videoTrack = stream?.getVideoTracks?.()[0] || null;
@@ -140,8 +140,13 @@ function VideoPlayer({
     let stableTicks = 0;
     let stalledTicks = 0;
     let blackFrameTicks = 0;
+    let consecutiveHealthyFrames = 0;
     let intervalId = null;
-    let suppressRenderingUntilHealthyFrame = false;
+    let alreadyRendering = false;
+    // For remote tiles: allow a generous startup window before enforcing black-frame checks.
+    // This prevents the probe from triggering on the first few frames before the video
+    // stream has fully warmed up, which caused remote tiles to go black immediately.
+    let startupGraceTicks = isLocal ? 0 : 12; // 12 × 250ms = 3 seconds grace
     const probeCanvas = document.createElement('canvas');
     const probeContext = probeCanvas.getContext('2d', { willReadFrequently: true });
     probeCanvas.width = 24;
@@ -149,36 +154,51 @@ function VideoPlayer({
 
     const markRendering = () => {
       if (cancelled) return;
+      alreadyRendering = true;
       setIsVideoRendering(true);
+    };
+
+    const unmarkRendering = () => {
+      if (cancelled) return;
+      alreadyRendering = false;
+      setIsVideoRendering(false);
     };
 
     // Detect playback health and only render when frames are healthy.
     intervalId = window.setInterval(() => {
       if (cancelled) return;
+
       const hasDims = element.videoWidth > 0 && element.videoHeight > 0;
       const timeNow = element.currentTime || 0;
       const advanced = timeNow > lastTime + 0.08;
-      let healthyFrameConfirmed = false;
+
       if (advanced) {
         lastTime = timeNow;
         stalledTicks = 0;
+        stableTicks += 1;
       } else if (hasDims) {
         stalledTicks += 1;
-      }
-      stableTicks = advanced ? stableTicks + 1 : 0;
-      if (isLocal && hasDims && stableTicks >= 2 && !suppressRenderingUntilHealthyFrame) {
-        markRendering();
-      }
-      // If frames stop advancing for ~1.5s, treat video as stalled and show avatar fallback.
-      if (stalledTicks >= 6) {
-        suppressRenderingUntilHealthyFrame = true;
-        setIsVideoRendering(false);
-        if (!isLocal) {
-          setIsRemoteVideoSuppressed(true);
-        }
+        stableTicks = 0;
       }
 
-      // Detect persistent all-black video frames and fallback to avatar UI.
+      // Count down the startup grace period before enforcing any black-frame checks.
+      if (startupGraceTicks > 0) {
+        startupGraceTicks -= 1;
+        // During grace period: show video as soon as we have valid dimensions + advancing frames.
+        if (hasDims && advanced) {
+          markRendering();
+        }
+        return;
+      }
+
+      // If frames stop advancing for ~2s (8 × 250ms), treat video as stalled → avatar fallback.
+      if (stalledTicks >= 8) {
+        consecutiveHealthyFrames = 0;
+        unmarkRendering();
+        return;
+      }
+
+      // Probe frames for black/corrupt content.
       if (hasDims && probeContext) {
         try {
           probeContext.drawImage(element, 0, 0, probeCanvas.width, probeCanvas.height);
@@ -192,52 +212,43 @@ function VideoPlayer({
             const luminance = (0.2126 * frameData[i]) + (0.7152 * frameData[i + 1]) + (0.0722 * frameData[i + 2]);
             total += luminance;
             totalSq += luminance * luminance;
-            if (luminance < 18) {
-              darkPixels += 1;
-            }
+            if (luminance < 18) darkPixels += 1;
             pixels += 1;
           }
 
           const avg = pixels ? total / pixels : 0;
           const variance = pixels ? (totalSq / pixels) - (avg * avg) : 0;
           const darkRatio = pixels ? darkPixels / pixels : 1;
-          const looksBlack = (
-            (avg < 16 && variance < 28)
-            || darkRatio > 0.92
-          );
+          const looksBlack = (avg < 16 && variance < 28) || darkRatio > 0.92;
 
           if (looksBlack) {
+            consecutiveHealthyFrames = 0;
             blackFrameTicks += 1;
-            if (blackFrameTicks >= 2) {
-              suppressRenderingUntilHealthyFrame = true;
-              setIsVideoRendering(false);
-              if (!isLocal) {
-                setIsRemoteVideoSuppressed(true);
-              }
+            // Only fall back to avatar after several consecutive black frames (not just 1-2)
+            // to avoid falsely hiding a valid dark scene.
+            if (blackFrameTicks >= 6) {
+              unmarkRendering();
             }
           } else {
             blackFrameTicks = 0;
-            suppressRenderingUntilHealthyFrame = false;
-            healthyFrameConfirmed = true;
-            if (hasDims && stableTicks >= 1) {
+            consecutiveHealthyFrames += 1;
+            // Require at least 2 consecutive healthy frames before marking as rendering,
+            // for both local and remote tiles.
+            if (consecutiveHealthyFrames >= 2) {
               markRendering();
             }
           }
-        } catch (error) {
-          // Conservative fallback for remote tiles: if probing fails, don't keep black video visible.
-          if (!isLocal) {
-            blackFrameTicks += 1;
-            if (blackFrameTicks >= 2) {
-              suppressRenderingUntilHealthyFrame = true;
-              setIsVideoRendering(false);
-              setIsRemoteVideoSuppressed(true);
-            }
+        } catch {
+          // Canvas probe failed (cross-origin or GPU issue). For remote tiles, don't
+          // aggressively hide the video — just leave the current state as-is so the
+          // tile doesn't flicker to black unexpectedly.
+          if (!alreadyRendering && hasDims && advanced) {
+            markRendering();
           }
         }
-      }
-
-      if (!isLocal && (!healthyFrameConfirmed || suppressRenderingUntilHealthyFrame)) {
-        setIsVideoRendering(false);
+      } else if (hasDims && advanced) {
+        // No probe context available but we have real frames advancing — show the video.
+        markRendering();
       }
     }, 250);
 
