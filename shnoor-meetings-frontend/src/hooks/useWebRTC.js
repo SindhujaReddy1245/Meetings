@@ -676,10 +676,6 @@ export function useWebRTC(roomId, options = {}) {
       case 'accepted':
         sessionStorage.setItem(`meeting_admitted_${roomId}`, 'true');
         window.dispatchEvent(new CustomEvent('meeting-admitted', { detail: { roomId } }));
-        // Ensure the admitted participant joins immediately even if UI event timing is missed.
-        if (!joinedRoomRef.current && ws.current?.readyState === WebSocket.OPEN) {
-          joinRoomCallbackRef.current?.();
-        }
         break;
 
       case 'deny':
@@ -687,13 +683,6 @@ export function useWebRTC(roomId, options = {}) {
         break;
 
       case 'join-blocked':
-        // Previous join attempt was rejected by waiting-room policy.
-        // Reset local joined state so an upcoming "accepted" event can retry join-room.
-        joinedRoomRef.current = false;
-        if (participantStateHeartbeatRef.current) {
-          window.clearInterval(participantStateHeartbeatRef.current);
-          participantStateHeartbeatRef.current = null;
-        }
         sessionStorage.removeItem(`meeting_admitted_${roomId}`);
         window.dispatchEvent(new CustomEvent('meeting-denied', { detail: { roomId } }));
         break;
@@ -758,34 +747,6 @@ export function useWebRTC(roomId, options = {}) {
       let stream = new MediaStream();
 
       try {
-        ws.current = new WebSocket(buildWebSocketUrl(`/ws/${roomId}/${clientId.current}`));
-
-        ws.current.onopen = () => {
-          pendingMessagesRef.current.forEach((message) => {
-            ws.current?.send(JSON.stringify(message));
-          });
-          pendingMessagesRef.current = [];
-
-          if (isHost.current) {
-            ws.current?.send(JSON.stringify({
-              type: 'host_join',
-              user_id: currentUser.current?.meetingUserId || clientId.current,
-              email: currentUser.current?.email || null,
-              name: displayName.current,
-              picture: currentUser.current?.picture || null,
-            }));
-          }
-
-          if (autoJoin) {
-            joinRoomCallbackRef.current?.();
-          }
-        };
-
-        ws.current.onmessage = async (event) => {
-          const message = JSON.parse(event.data);
-          await handleSignalingDataRef.current?.(message, stream || originalStream.current);
-        };
-
         if (acquireMedia) {
           try {
             const cachedPreJoinStream = consumePreJoinStream(roomId);
@@ -836,6 +797,34 @@ export function useWebRTC(roomId, options = {}) {
         } else {
           originalStream.current = stream;
         }
+
+        ws.current = new WebSocket(buildWebSocketUrl(`/ws/${roomId}/${clientId.current}`));
+
+        ws.current.onopen = () => {
+          pendingMessagesRef.current.forEach((message) => {
+            ws.current?.send(JSON.stringify(message));
+          });
+          pendingMessagesRef.current = [];
+
+          if (isHost.current) {
+            ws.current?.send(JSON.stringify({
+              type: 'host_join',
+              user_id: currentUser.current?.meetingUserId || clientId.current,
+              email: currentUser.current?.email || null,
+              name: displayName.current,
+              picture: currentUser.current?.picture || null,
+            }));
+          }
+
+          if (autoJoin) {
+            joinRoomCallbackRef.current?.();
+          }
+        };
+
+        ws.current.onmessage = async (event) => {
+          const message = JSON.parse(event.data);
+          await handleSignalingDataRef.current?.(message, stream || originalStream.current);
+        };
       } catch (error) {
         console.error('Error starting WebRTC connection.', error);
         if (isMounted) {

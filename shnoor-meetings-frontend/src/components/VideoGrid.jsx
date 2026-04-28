@@ -40,24 +40,18 @@ function VideoPlayer({
   isVideoEnabled = true,
   isAudioEnabled = true,
   featured = false,
-  forceAvatarOnly = false,
 }) {
   const videoRef = useRef(null);
   const [videoReady, setVideoReady] = useState(false);
   const [isVideoRendering, setIsVideoRendering] = useState(false);
   const [hasLiveVideoTrackState, setHasLiveVideoTrackState] = useState(false);
-  const [isRemoteVideoSuppressed, setIsRemoteVideoSuppressed] = useState(false);
-  const [showRemoteAvatarShield, setShowRemoteAvatarShield] = useState(false);
-  const lastVideoTrackIdRef = useRef(null);
   const loggedInUser = getCurrentUser();
   const resolvedPicture = isLocal ? (picture || loggedInUser?.picture || null) : picture;
   const resolvedLabel = isLocal ? (label || loggedInUser?.name || loggedInUser?.email || 'You') : label;
-  const shouldShowVideo = !forceAvatarOnly && Boolean(isVideoEnabled) && hasLiveVideoTrackState && (isLocal || !isRemoteVideoSuppressed);
+  const shouldShowVideo = Boolean(isVideoEnabled) && hasLiveVideoTrackState;
   const ringStrength = Math.max(0, Math.min(audioLevel * 18, 1));
   const showVideo = shouldShowVideo && videoReady && isVideoRendering;
-  // Remote video element should mount only when frames are actually rendering;
-  // this avoids black tiles on host view while the stream is still warming up.
-  const shouldRenderVideoElement = !forceAvatarOnly && (isLocal ? shouldShowVideo : showVideo);
+  const shouldRenderVideoElement = isLocal ? shouldShowVideo : showVideo;
 
   useEffect(() => {
     const videoTrack = stream?.getVideoTracks?.()[0] || null;
@@ -65,35 +59,15 @@ function VideoPlayer({
     if (!videoTrack) {
       setHasLiveVideoTrackState(false);
       setIsVideoRendering(false);
-      if (!isLocal) {
-        setIsRemoteVideoSuppressed(false);
-      }
-      lastVideoTrackIdRef.current = null;
       return undefined;
     }
 
-    if (lastVideoTrackIdRef.current !== videoTrack.id) {
-      lastVideoTrackIdRef.current = videoTrack.id;
-      if (!isLocal) {
-        // New remote track means peer likely restarted camera; allow video again.
-        setIsRemoteVideoSuppressed(false);
-      }
-    }
-
     const syncTrackState = () => {
-      // For remote tracks, browser sets `muted = true` when no data has arrived yet —
-      // this is a network/buffering state, NOT the user's camera-off state.
-      // Only local tracks should use the muted flag as a signal.
-      const hasLiveTrack = isLocal
-        ? (
-          videoTrack.readyState === 'live'
-          && videoTrack.enabled !== false
-          && videoTrack.muted !== true
-        )
-        : (
-          videoTrack.readyState === 'live'
-          && videoTrack.enabled !== false
-        );
+      const hasLiveTrack = (
+        videoTrack.readyState === 'live'
+        && videoTrack.enabled !== false
+        && videoTrack.muted !== true
+      );
       setHasLiveVideoTrackState(hasLiveTrack);
       if (!hasLiveTrack) {
         // Immediately fall back to avatar tile instead of leaving a black video layer.
@@ -113,24 +87,7 @@ function VideoPlayer({
       videoTrack.removeEventListener('ended', syncTrackState);
       window.clearInterval(intervalId);
     };
-  }, [isLocal, stream]);
-
-  useEffect(() => {
-    if (isLocal || !stream) {
-      setShowRemoteAvatarShield(false);
-      return undefined;
-    }
-
-    // Keep avatar above remote tile briefly after join/track changes to prevent black flashes.
-    setShowRemoteAvatarShield(true);
-    const timeoutId = window.setTimeout(() => {
-      setShowRemoteAvatarShield(false);
-    }, 4000);
-
-    return () => {
-      window.clearTimeout(timeoutId);
-    };
-  }, [isLocal, stream]);
+  }, [stream]);
 
   useEffect(() => {
     setVideoReady(false);
@@ -166,13 +123,8 @@ function VideoPlayer({
     let stableTicks = 0;
     let stalledTicks = 0;
     let blackFrameTicks = 0;
-    let consecutiveHealthyFrames = 0;
     let intervalId = null;
-    let alreadyRendering = false;
-    // For remote tiles: allow a generous startup window before enforcing black-frame checks.
-    // This prevents the probe from triggering on the first few frames before the video
-    // stream has fully warmed up, which caused remote tiles to go black immediately.
-    let startupGraceTicks = isLocal ? 0 : 12; // 12 × 250ms = 3 seconds grace
+    let suppressRenderingUntilHealthyFrame = false;
     const probeCanvas = document.createElement('canvas');
     const probeContext = probeCanvas.getContext('2d', { willReadFrequently: true });
     probeCanvas.width = 24;
@@ -180,61 +132,33 @@ function VideoPlayer({
 
     const markRendering = () => {
       if (cancelled) return;
-      alreadyRendering = true;
-      if (!isLocal) {
-        setIsRemoteVideoSuppressed(false);
-      }
       setIsVideoRendering(true);
-    };
-
-    const unmarkRendering = () => {
-      if (cancelled) return;
-      alreadyRendering = false;
-      if (!isLocal) {
-        // Keep remote tiles on avatar fallback until healthy frames are confirmed.
-        setIsRemoteVideoSuppressed(true);
-      }
-      setIsVideoRendering(false);
     };
 
     // Detect playback health and only render when frames are healthy.
     intervalId = window.setInterval(() => {
       if (cancelled) return;
-
       const hasDims = element.videoWidth > 0 && element.videoHeight > 0;
       const timeNow = element.currentTime || 0;
       const advanced = timeNow > lastTime + 0.08;
-
+      let healthyFrameConfirmed = false;
       if (advanced) {
         lastTime = timeNow;
         stalledTicks = 0;
-        stableTicks += 1;
       } else if (hasDims) {
         stalledTicks += 1;
-        stableTicks = 0;
+      }
+      stableTicks = advanced ? stableTicks + 1 : 0;
+      if (isLocal && hasDims && stableTicks >= 2 && !suppressRenderingUntilHealthyFrame) {
+        markRendering();
+      }
+      // If frames stop advancing for ~1.5s, treat video as stalled and show avatar fallback.
+      if (stalledTicks >= 6) {
+        suppressRenderingUntilHealthyFrame = true;
+        setIsVideoRendering(false);
       }
 
-      // Count down the startup grace period before enforcing any black-frame checks.
-      if (startupGraceTicks > 0) {
-        startupGraceTicks -= 1;
-        // During grace period, keep remote tiles on avatar to avoid brief black flashes.
-        // Local tile can render immediately once frames advance.
-        if (isLocal && hasDims && advanced) {
-          markRendering();
-        } else if (!isLocal) {
-          unmarkRendering();
-        }
-        return;
-      }
-
-      // If frames stop advancing for ~2s (8 × 250ms), treat video as stalled → avatar fallback.
-      if (stalledTicks >= 8) {
-        consecutiveHealthyFrames = 0;
-        unmarkRendering();
-        return;
-      }
-
-      // Probe frames for black/corrupt content.
+      // Detect persistent all-black video frames and fallback to avatar UI.
       if (hasDims && probeContext) {
         try {
           probeContext.drawImage(element, 0, 0, probeCanvas.width, probeCanvas.height);
@@ -248,44 +172,48 @@ function VideoPlayer({
             const luminance = (0.2126 * frameData[i]) + (0.7152 * frameData[i + 1]) + (0.0722 * frameData[i + 2]);
             total += luminance;
             totalSq += luminance * luminance;
-            if (luminance < 18) darkPixels += 1;
+            if (luminance < 18) {
+              darkPixels += 1;
+            }
             pixels += 1;
           }
 
           const avg = pixels ? total / pixels : 0;
           const variance = pixels ? (totalSq / pixels) - (avg * avg) : 0;
           const darkRatio = pixels ? darkPixels / pixels : 1;
-          const looksBlack = (avg < 16 && variance < 28) || darkRatio > 0.92;
+          const looksBlack = (
+            (avg < 16 && variance < 28)
+            || darkRatio > 0.92
+          );
 
           if (looksBlack) {
-            consecutiveHealthyFrames = 0;
             blackFrameTicks += 1;
-            // Only fall back to avatar after several consecutive black frames (not just 1-2)
-            // to avoid falsely hiding a valid dark scene.
-            if ((!isLocal && blackFrameTicks >= 1) || (isLocal && blackFrameTicks >= 6)) {
-              unmarkRendering();
+            if (blackFrameTicks >= 2) {
+              suppressRenderingUntilHealthyFrame = true;
+              setIsVideoRendering(false);
             }
           } else {
             blackFrameTicks = 0;
-            consecutiveHealthyFrames += 1;
-            // Require at least 2 consecutive healthy frames before marking as rendering,
-            // for both local and remote tiles.
-            if (consecutiveHealthyFrames >= 2) {
+            suppressRenderingUntilHealthyFrame = false;
+            healthyFrameConfirmed = true;
+            if (hasDims && stableTicks >= 1) {
               markRendering();
             }
           }
-        } catch {
-          // Canvas probe failed (cross-origin or GPU issue). Don't aggressively hide
-          // the video — leave current state as-is to avoid flickering to black.
-          if (isLocal && !alreadyRendering && hasDims && advanced) {
-            markRendering();
+        } catch (error) {
+          // Conservative fallback for remote tiles: if probing fails, don't keep black video visible.
+          if (!isLocal) {
+            blackFrameTicks += 1;
+            if (blackFrameTicks >= 2) {
+              suppressRenderingUntilHealthyFrame = true;
+              setIsVideoRendering(false);
+            }
           }
         }
-      } else if (hasDims && advanced) {
-        // No probe context available but we have real frames advancing — show the video.
-        if (isLocal) {
-          markRendering();
-        }
+      }
+
+      if (!isLocal && (!healthyFrameConfirmed || suppressRenderingUntilHealthyFrame)) {
+        setIsVideoRendering(false);
       }
     }, 250);
 
@@ -293,7 +221,7 @@ function VideoPlayer({
       cancelled = true;
       if (intervalId) window.clearInterval(intervalId);
     };
-  }, [isLocal, shouldShowVideo]);
+  }, [shouldShowVideo]);
 
   useEffect(() => {
     const element = videoRef.current;
@@ -348,7 +276,7 @@ function VideoPlayer({
           />
         )}
 
-        {(!showVideo || showRemoteAvatarShield) && (
+        {!showVideo && (
           <div className="absolute inset-0 flex items-center justify-center">
             <SpeakerBackdrop active={isSpeaking} featured={featured} />
             <div className="relative z-10 flex items-center justify-center">
@@ -425,85 +353,10 @@ function RemoteAudio({ stream }) {
   return <audio ref={audioRef} autoPlay playsInline />;
 }
 
-function AvatarOnlyTile({
-  label,
-  picture,
-  isHandRaised = false,
-  isSpeaking = false,
-  isDominantSpeaker = false,
-  featured = false,
-  audioLevel = 0,
-}) {
-  const ringStrength = Math.max(0, Math.min(audioLevel * 18, 1));
-
-  return (
-    <SpeakerHighlight active={isSpeaking} featured={featured}>
-      <div
-        className={`relative overflow-hidden border group flex items-center justify-center transition-all duration-500 ${
-          featured ? 'w-full h-full rounded-3xl bg-black' : 'w-full aspect-video rounded-2xl bg-[radial-gradient(circle_at_top,#31445f_0%,#1f2d44_45%,#142033_100%)]'
-        } ${
-          isSpeaking
-            ? 'border-white/20 shadow-[0_0_0_1px_rgba(255,255,255,0.14)]'
-            : 'border-gray-700/50 shadow-2xl'
-        }`}
-      >
-        <div className="absolute inset-0 flex items-center justify-center">
-          <SpeakerBackdrop active={isSpeaking} featured={featured} />
-          <div className="relative z-10 flex items-center justify-center">
-            {isDominantSpeaker && (
-              <div
-                className={`pointer-events-none absolute rounded-full border-2 border-white/85 ${
-                  featured ? 'h-44 w-44 sm:h-52 sm:w-52' : 'h-32 w-32'
-                }`}
-                style={{
-                  animation: 'meetSpeakerRing 1.25s ease-in-out infinite',
-                  boxShadow: '0 0 0 1px rgba(255,255,255,0.22)',
-                }}
-              />
-            )}
-            <ProfileAvatar
-              name={label}
-              picture={picture}
-              className={featured ? 'h-36 w-36 sm:h-44 sm:w-44' : 'h-24 w-24'}
-              textClass={featured ? 'text-6xl' : 'text-4xl'}
-              ringClassName="border-2 border-white/60"
-            />
-          </div>
-        </div>
-
-        {isHandRaised && (
-          <div className="absolute top-20 right-4 bg-yellow-500 text-white p-2 rounded-full shadow-lg border-2 border-yellow-400 z-10">
-            <span className="text-xs font-bold">RH</span>
-          </div>
-        )}
-
-        <div className="absolute bottom-4 left-4 right-4 flex items-center justify-between">
-          <div className="bg-black/60 backdrop-blur-md rounded-lg text-white font-semibold tracking-wide border border-white/10 shadow-lg px-4 py-1.5 text-sm">
-            {label}
-          </div>
-
-          {isSpeaking && (
-            <div className="flex items-center gap-1 rounded-full bg-black/45 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.2em] text-emerald-100">
-              <span
-                className="h-2 w-2 rounded-full bg-emerald-300"
-                style={{ boxShadow: `0 0 ${10 + (ringStrength * 16)}px rgba(110, 231, 183, 0.9)` }}
-              />
-              Speaking
-            </div>
-          )}
-        </div>
-
-        <div className="absolute inset-0 bg-gradient-to-t from-black/40 via-transparent to-transparent pointer-events-none" />
-      </div>
-    </SpeakerHighlight>
-  );
-}
-
 export default function VideoGrid({
   localStream,
   remoteStreams,
   participantsMetadata = {},
-  localClientId = null,
   localHandRaised = false,
   localParticipantName = 'You',
   localParticipantPicture = null,
@@ -511,27 +364,16 @@ export default function VideoGrid({
   isSharingScreen = false,
   isAudioEnabled = true,
   isVideoEnabled = true,
-  forceRemoteAvatarOnly = false,
   getPeerConnection,
 }) {
   // kept for future interactions (e.g. pin), but the UI stays in grid mode always
   const [selectedTile, setSelectedTile] = useState(null);
 
-  const remoteTiles = useMemo(() => {
-    const remoteIds = new Set([
-      ...Object.keys(remoteStreams || {}),
-      ...Object.keys(participantsMetadata || {}),
-    ]);
-
-    if (localClientId) {
-      remoteIds.delete(localClientId);
-    }
-    remoteIds.delete('local');
-
-    return Array.from(remoteIds).map((peerId) => ({
+  const remoteTiles = useMemo(() => (
+    Object.entries(remoteStreams).map(([peerId, stream]) => ({
       hasPublishedMediaState: participantsMetadata[peerId]?.hasPublishedMediaState ?? false,
       id: peerId,
-      stream: remoteStreams[peerId] || null,
+      stream,
       label: participantsMetadata[peerId]?.name || 'Participant',
       picture: participantsMetadata[peerId]?.picture || null,
       isHandRaised: participantsMetadata[peerId]?.isHandRaised,
@@ -543,8 +385,8 @@ export default function VideoGrid({
         ? (participantsMetadata[peerId]?.isVideoEnabled ?? false)
         : false,
       isLocal: false,
-    }));
-  }, [localClientId, participantsMetadata, remoteStreams]);
+    }))
+  ), [participantsMetadata, remoteStreams]);
 
   const localTile = useMemo(() => ({
     id: 'local',
@@ -569,7 +411,7 @@ export default function VideoGrid({
 
   const standardGridTiles = useMemo(() => {
     const tiles = [localTile, ...remoteTiles]
-      .filter((tile) => tile.isLocal ? tile.stream : (tile.stream || tile.label))
+      .filter((tile) => tile.stream)
       .sort((left, right) => {
         const leftLevel = audioLevels[left.id] || 0;
         const rightLevel = audioLevels[right.id] || 0;
@@ -583,7 +425,7 @@ export default function VideoGrid({
 
   const orderedStandardTiles = useMemo(() => (
     [localTile, ...remoteTiles]
-      .filter((tile) => tile.isLocal ? tile.stream : (tile.stream || tile.label))
+      .filter((tile) => tile.stream)
       .sort((left, right) => {
         const leftLevel = audioLevels[left.id] || 0;
         const rightLevel = audioLevels[right.id] || 0;
@@ -619,7 +461,7 @@ export default function VideoGrid({
           50% { transform: scale(1.10); opacity: 0.95; }
         }
       `}</style>
-      {remoteTiles.filter((tile) => tile.stream).map((tile) => (
+      {remoteTiles.map((tile) => (
         <RemoteAudio key={`audio-${tile.id}`} stream={tile.stream} />
       ))}
       <div className={`grid gap-6 w-full ${standardGridTiles} mx-auto items-center justify-items-center`}>
@@ -629,30 +471,18 @@ export default function VideoGrid({
             onClick={() => setSelectedTile(tile.id)}
             className="w-full"
           >
-            {!tile.isLocal && (forceRemoteAvatarOnly || !tile.stream) ? (
-              <AvatarOnlyTile
-                label={tile.label}
-                picture={tile.picture}
-                isHandRaised={tile.isHandRaised}
-                isSpeaking={speakingParticipantIds.has(tile.id)}
-                isDominantSpeaker={dominantSpeakerId === tile.id}
-                audioLevel={audioLevels[tile.id] || 0}
-              />
-            ) : (
-              <VideoPlayer
-                stream={tile.stream}
-                label={tile.label}
-                picture={tile.picture}
-                isLocal={tile.isLocal}
-                isHandRaised={tile.isHandRaised}
-                isSpeaking={speakingParticipantIds.has(tile.id)}
-                isDominantSpeaker={dominantSpeakerId === tile.id}
-                audioLevel={audioLevels[tile.id] || 0}
-                isAudioEnabled={tile.isAudioEnabled}
-                isVideoEnabled={tile.isVideoEnabled}
-                forceAvatarOnly={!tile.isLocal && forceRemoteAvatarOnly}
-              />
-            )}
+            <VideoPlayer
+              stream={tile.stream}
+              label={tile.label}
+              picture={tile.picture}
+              isLocal={tile.isLocal}
+              isHandRaised={tile.isHandRaised}
+              isSpeaking={speakingParticipantIds.has(tile.id)}
+              isDominantSpeaker={dominantSpeakerId === tile.id}
+              audioLevel={audioLevels[tile.id] || 0}
+              isAudioEnabled={tile.isAudioEnabled}
+              isVideoEnabled={tile.isVideoEnabled}
+            />
           </button>
         ))}
       </div>
