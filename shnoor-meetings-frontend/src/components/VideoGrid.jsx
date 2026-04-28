@@ -320,7 +320,8 @@ export default function VideoGrid({
       isSharingScreen: participantsMetadata[peerId]?.isSharingScreen,
       isHost: participantsMetadata[peerId]?.role === 'host',
       isAudioEnabled: participantsMetadata[peerId]?.isAudioEnabled ?? true,
-      isVideoEnabled: participantsMetadata[peerId]?.isVideoEnabled ?? true,
+      // Default remote video to false until explicit participant state arrives.
+      isVideoEnabled: participantsMetadata[peerId]?.isVideoEnabled ?? false,
       isLocal: false,
     }))
   ), [participantsMetadata, remoteStreams]);

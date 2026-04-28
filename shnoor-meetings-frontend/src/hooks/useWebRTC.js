@@ -391,7 +391,7 @@ export function useWebRTC(roomId, options = {}) {
               : prev[peerId]?.isAudioEnabled ?? true,
             isVideoEnabled: typeof data.isVideoEnabled === 'boolean'
               ? data.isVideoEnabled
-              : prev[peerId]?.isVideoEnabled ?? true,
+              : prev[peerId]?.isVideoEnabled ?? false,
           },
         }));
 
@@ -424,7 +424,7 @@ export function useWebRTC(roomId, options = {}) {
             isHandRaised: prev[peerId]?.isHandRaised || false,
             isSharingScreen: prev[peerId]?.isSharingScreen || false,
             isAudioEnabled: prev[peerId]?.isAudioEnabled ?? true,
-            isVideoEnabled: prev[peerId]?.isVideoEnabled ?? true,
+            isVideoEnabled: prev[peerId]?.isVideoEnabled ?? false,
           },
         }));
 
@@ -517,7 +517,7 @@ export function useWebRTC(roomId, options = {}) {
             isHandRaised: typeof data.isHandRaised === 'boolean' ? data.isHandRaised : prev[peerId]?.isHandRaised,
             isSharingScreen: typeof data.isSharingScreen === 'boolean' ? data.isSharingScreen : prev[peerId]?.isSharingScreen,
             isAudioEnabled: typeof data.isAudioEnabled === 'boolean' ? data.isAudioEnabled : prev[peerId]?.isAudioEnabled ?? true,
-            isVideoEnabled: typeof data.isVideoEnabled === 'boolean' ? data.isVideoEnabled : prev[peerId]?.isVideoEnabled ?? true,
+            isVideoEnabled: typeof data.isVideoEnabled === 'boolean' ? data.isVideoEnabled : prev[peerId]?.isVideoEnabled ?? false,
           },
         }));
         break;
@@ -559,7 +559,7 @@ export function useWebRTC(roomId, options = {}) {
                   : prev[participant.id]?.isAudioEnabled ?? true,
                 isVideoEnabled: typeof participant.isVideoEnabled === 'boolean'
                   ? participant.isVideoEnabled
-                  : prev[participant.id]?.isVideoEnabled ?? true,
+                  : prev[participant.id]?.isVideoEnabled ?? false,
               };
             });
 
