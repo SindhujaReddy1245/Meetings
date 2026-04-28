@@ -160,12 +160,19 @@ function VideoPlayer({
     const markRendering = () => {
       if (cancelled) return;
       alreadyRendering = true;
+      if (!isLocal) {
+        setIsRemoteVideoSuppressed(false);
+      }
       setIsVideoRendering(true);
     };
 
     const unmarkRendering = () => {
       if (cancelled) return;
       alreadyRendering = false;
+      if (!isLocal) {
+        // Keep remote tiles on avatar fallback until healthy frames are confirmed.
+        setIsRemoteVideoSuppressed(true);
+      }
       setIsVideoRendering(false);
     };
 
@@ -234,7 +241,7 @@ function VideoPlayer({
             blackFrameTicks += 1;
             // Only fall back to avatar after several consecutive black frames (not just 1-2)
             // to avoid falsely hiding a valid dark scene.
-            if (blackFrameTicks >= 6) {
+            if ((!isLocal && blackFrameTicks >= 1) || (isLocal && blackFrameTicks >= 6)) {
               unmarkRendering();
             }
           } else {
