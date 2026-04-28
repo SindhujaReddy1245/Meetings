@@ -295,21 +295,26 @@ export function useWebRTC(roomId, options = {}) {
 
       setRemoteStreams((prev) => {
         const nextStream = prev[peerId] ? new MediaStream(prev[peerId].getTracks()) : new MediaStream();
+        const replaceTrackByKind = (trackToAdd) => {
+          if (!trackToAdd) return;
+
+          nextStream.getTracks()
+            .filter((existingTrack) => existingTrack.kind === trackToAdd.kind)
+            .forEach((existingTrack) => {
+              nextStream.removeTrack(existingTrack);
+            });
+
+          nextStream.addTrack(trackToAdd);
+        };
 
         event.streams.forEach((incomingStream) => {
           incomingStream.getTracks().forEach((track) => {
-            const alreadyPresent = nextStream.getTracks().some((existingTrack) => existingTrack.id === track.id);
-            if (!alreadyPresent) {
-              nextStream.addTrack(track);
-            }
+            replaceTrackByKind(track);
           });
         });
 
         if (!event.streams.length && event.track) {
-          const alreadyPresent = nextStream.getTracks().some((existingTrack) => existingTrack.id === event.track.id);
-          if (!alreadyPresent) {
-            nextStream.addTrack(event.track);
-          }
+          replaceTrackByKind(event.track);
         }
 
         return {
