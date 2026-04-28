@@ -67,27 +67,35 @@ export default function MeetingRoom() {
     prevJoinRequestsCount.current = activeJoinRequests.length;
   }, [activeJoinRequests.length, shouldShowHostControls]);
 
+  // ─── FIX: Only redirect if we are certain this is a non-admitted participant. ──
+  // Add a short grace delay so the admitted flag set in LobbyPage has time to
+  // propagate before this effect runs on first mount.
+  const redirectCheckedRef = useRef(false);
   useEffect(() => {
-    if (!isHost && !isAdmitted) {
-      navigate(`/meeting/${roomId}?role=participant`, { replace: true });
-    }
-  }, [isAdmitted, isHost, navigate, roomId]);
+    if (redirectCheckedRef.current) return;
+
+    const check = () => {
+      redirectCheckedRef.current = true;
+      const admitted = sessionStorage.getItem(`meeting_admitted_${roomId}`) === 'true';
+      if (!isHost && !admitted) {
+        navigate(`/meeting/${roomId}?role=participant`, { replace: true });
+      }
+    };
+
+    // Give sessionStorage 300ms to settle after navigation from LobbyPage.
+    const timerId = window.setTimeout(check, 300);
+    return () => window.clearTimeout(timerId);
+  }, [isHost, navigate, roomId]);
 
   useEffect(() => {
     const handleDenied = (event) => {
-      if (event.detail?.roomId !== roomId) {
-        return;
-      }
-
+      if (event.detail?.roomId !== roomId) return;
       setIsAdmitted(false);
       navigate(`/meeting/${roomId}?role=participant`, { replace: true });
     };
 
     const handleAdmitted = (event) => {
-      if (event.detail?.roomId !== roomId) {
-        return;
-      }
-
+      if (event.detail?.roomId !== roomId) return;
       setIsAdmitted(true);
     };
 
@@ -113,10 +121,7 @@ export default function MeetingRoom() {
   }, [messages, isChatOpen]);
 
   useEffect(() => {
-    if (!actionStatus) {
-      return undefined;
-    }
-
+    if (!actionStatus) return undefined;
     const timer = window.setTimeout(() => setActionStatus(''), 2500);
     return () => window.clearTimeout(timer);
   }, [actionStatus]);
@@ -193,13 +198,8 @@ export default function MeetingRoom() {
     window.setTimeout(() => setCopyStatus(''), 2200);
   };
 
-  const copyRoomCode = () => {
-    copyText(roomId, 'Meeting code copied.');
-  };
-
-  const copyInviteLink = () => {
-    copyText(inviteLink, 'Meeting link copied.');
-  };
+  const copyRoomCode = () => copyText(roomId, 'Meeting code copied.');
+  const copyInviteLink = () => copyText(inviteLink, 'Meeting link copied.');
 
   return (
     <div className="h-screen w-full bg-gray-900 flex flex-col overflow-hidden text-white font-sans">

@@ -200,20 +200,20 @@ export default function LobbyPage() {
     }
   };
 
+  // ─── FIX: Listen for admitted/denied events and navigate participant to room ───
   useEffect(() => {
     const handleAdmitted = (e) => {
-      if (e.detail.roomId === roomId) {
-        setIsWaiting(false);
-        window.setTimeout(() => {
-          joinMeetingRef.current?.();
-        }, 150);
-      }
+      if (e.detail.roomId !== roomId) return;
+      setIsWaiting(false);
+      // Small delay to let sessionStorage writes settle before navigating.
+      window.setTimeout(() => {
+        joinMeetingRef.current?.();
+      }, 150);
     };
     const handleDenied = (e) => {
-      if (e.detail.roomId === roomId) {
-        setIsWaiting(false);
-        showToast('The host denied your join request.');
-      }
+      if (e.detail.roomId !== roomId) return;
+      setIsWaiting(false);
+      showToast('The host denied your join request.');
     };
     window.addEventListener('meeting-admitted', handleAdmitted);
     window.addEventListener('meeting-denied', handleDenied);
@@ -223,12 +223,10 @@ export default function LobbyPage() {
     };
   }, [roomId]);
 
+  // ─── FIX: Polling fallback in case the custom event is missed ────────────────
   useEffect(() => {
-    if (!isWaiting) {
-      return undefined;
-    }
+    if (!isWaiting) return undefined;
 
-    // Fallback: if "meeting-admitted" event is missed, still enter once admitted flag is set.
     const intervalId = window.setInterval(() => {
       if (sessionStorage.getItem(`meeting_admitted_${roomId}`) === 'true') {
         setIsWaiting(false);
@@ -236,33 +234,30 @@ export default function LobbyPage() {
       }
     }, 500);
 
-    return () => {
-      window.clearInterval(intervalId);
-    };
+    return () => window.clearInterval(intervalId);
   }, [isWaiting, roomId]);
 
   const handleAskToJoin = () => {
     const trimmedName = participantName.trim() || currentUser?.name || 'Guest';
     setParticipantName(trimmedName);
+    sessionStorage.setItem(`meeting_name_${roomId}`, trimmedName);
     setIsWaiting(true);
     requestToJoin(trimmedName);
     showToast("Waiting for host to accept...");
   };
 
+  // ─── FIX: Host accept — admit the participant then navigate host to room ─────
+  // Previously this also tried to navigate the host using joinMeetingRef which
+  // caused a timing conflict. Now the host simply admits and then joins normally.
   const handleHostAccept = (participantId) => {
     admitParticipant(participantId);
-
-    if (!sessionStorage.getItem(`meeting_admitted_${roomId}`)) {
-      window.setTimeout(() => {
-        joinMeetingRef.current?.();
-      }, 200);
-    }
   };
 
   const joinMeeting = () => {
     const trimmedName = participantName.trim() || currentUser?.name || (resolvedRole === 'host' ? 'Host' : 'Guest');
     sessionStorage.setItem(`meeting_name_${roomId}`, trimmedName);
     sessionStorage.setItem(`meeting_role_${roomId}`, resolvedRole === 'host' || shouldShowHostControls ? 'host' : 'participant');
+    // Mark as admitted BEFORE navigating so MeetingRoom reads it correctly on mount.
     sessionStorage.setItem(`meeting_admitted_${roomId}`, 'true');
     savePreJoinMediaState(roomId, { audioEnabled: isMicOn, videoEnabled: isVideoOn });
     if (stream) {
