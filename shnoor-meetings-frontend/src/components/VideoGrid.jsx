@@ -48,9 +48,16 @@ function VideoPlayer({
   const loggedInUser = getCurrentUser();
   const resolvedPicture = isLocal ? (picture || loggedInUser?.picture || null) : picture;
   const resolvedLabel = isLocal ? (label || loggedInUser?.name || loggedInUser?.email || 'You') : label;
+
+  // For remote tiles, isVideoEnabled from participantsMetadata is the ONLY reliable
+  // signal for whether the remote peer has their camera on. We cannot trust
+  // videoTrack.enabled on the receiver side — WebRTC does not sync .enabled across
+  // peers; it is always true on the remote track regardless of what the sender set.
   const shouldShowVideo = Boolean(isVideoEnabled) && hasLiveVideoTrackState;
+
   const ringStrength = Math.max(0, Math.min(audioLevel * 18, 1));
   const showVideo = shouldShowVideo && videoReady && isVideoRendering;
+
   // Always render the <video> element whenever we want to show video (local or remote).
   // Previously remote tiles only mounted the element after isVideoRendering was already true,
   // creating a chicken-and-egg where the frame probe could never read any frames.
@@ -66,9 +73,19 @@ function VideoPlayer({
     }
 
     const syncTrackState = () => {
-      // For remote tracks, browser sets `muted = true` when no data has arrived yet —
-      // this is a network/buffering state, NOT the user's camera-off state.
-      // Only local tracks should use the muted flag as a signal.
+      // For LOCAL tracks: check readyState + enabled + muted.
+      //   - enabled=false means the user deliberately muted their own camera.
+      //   - muted=true means the browser hasn't received data yet (buffering).
+      //
+      // For REMOTE tracks: ONLY check readyState.
+      //   - enabled is ALWAYS true on the receiver side — WebRTC does not propagate
+      //     the sender's .enabled flag across the network. Checking it here would
+      //     cause hasLiveVideoTrackState to stay true even when the remote peer has
+      //     their camera off, making the tile show black frames instead of the avatar.
+      //   - muted on a remote track reflects network buffering, not camera state —
+      //     already excluded correctly in the previous version.
+      //   - Camera-off state for remote peers is signalled via isVideoEnabled prop,
+      //     which comes from participantsMetadata (participant-update messages).
       const hasLiveTrack = isLocal
         ? (
           videoTrack.readyState === 'live'
@@ -76,9 +93,10 @@ function VideoPlayer({
           && videoTrack.muted !== true
         )
         : (
+          // Remote: readyState only. enabled is meaningless; isVideoEnabled handles camera state.
           videoTrack.readyState === 'live'
-          && videoTrack.enabled !== false
         );
+
       setHasLiveVideoTrackState(hasLiveTrack);
       if (!hasLiveTrack) {
         // Immediately fall back to avatar tile instead of leaving a black video layer.
@@ -98,7 +116,7 @@ function VideoPlayer({
       videoTrack.removeEventListener('ended', syncTrackState);
       window.clearInterval(intervalId);
     };
-  }, [stream]);
+  }, [isLocal, stream]);
 
   useEffect(() => {
     setVideoReady(false);
@@ -296,11 +314,14 @@ function VideoPlayer({
             onLoadedMetadata={() => setVideoReady(true)}
             onLoadedData={() => setVideoReady(true)}
             onCanPlay={() => setVideoReady(true)}
-            className={`absolute inset-0 w-full h-full ${featured ? 'object-contain bg-black' : 'object-cover'} ${isLocal ? 'transform -scale-x-100' : ''}`}
+            className={`absolute inset-0 w-full h-full ${featured ? 'object-contain' : 'object-cover'} ${isLocal ? 'transform -scale-x-100' : ''}`}
             style={{
               opacity: showVideo ? 1 : 0,
               transition: 'opacity 180ms ease-out',
               backgroundColor: 'transparent',
+              // Prevent the invisible video element from blocking clicks/hover on the avatar
+              // when it's opacity:0 but still mounted in the DOM.
+              pointerEvents: showVideo ? 'auto' : 'none',
             }}
           />
         )}
@@ -354,7 +375,7 @@ function VideoPlayer({
             <div className="flex items-center gap-1 rounded-full bg-black/45 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.2em] text-emerald-100">
               <span
                 className="h-2 w-2 rounded-full bg-emerald-300"
-              style={{ boxShadow: `0 0 ${10 + (ringStrength * 16)}px rgba(110, 231, 183, 0.9)` }}
+                style={{ boxShadow: `0 0 ${10 + (ringStrength * 16)}px rgba(110, 231, 183, 0.9)` }}
               />
               Speaking
             </div>
@@ -422,6 +443,9 @@ export default function VideoGrid({
       isSharingScreen: participantsMetadata[peerId]?.isSharingScreen,
       isHost: participantsMetadata[peerId]?.role === 'host',
       isAudioEnabled: participantsMetadata[peerId]?.isAudioEnabled ?? true,
+      // isVideoEnabled from metadata is the authoritative camera-on/off signal for remote peers.
+      // We cannot use videoTrack.enabled on the receiver side — WebRTC does not propagate
+      // the sender's .enabled flag; it is always true on remote tracks.
       isVideoEnabled: (participantsMetadata[peerId]?.hasPublishedMediaState ?? false)
         ? (participantsMetadata[peerId]?.isVideoEnabled ?? false)
         : false,
