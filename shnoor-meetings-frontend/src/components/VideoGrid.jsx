@@ -122,8 +122,8 @@ function VideoPlayer({
     let stableTicks = 0;
     let stalledTicks = 0;
     let blackFrameTicks = 0;
-    let rafId = null;
     let intervalId = null;
+    let suppressRenderingUntilHealthyFrame = false;
     const probeCanvas = document.createElement('canvas');
     const probeContext = probeCanvas.getContext('2d', { willReadFrequently: true });
     probeCanvas.width = 24;
@@ -134,20 +134,7 @@ function VideoPlayer({
       setIsVideoRendering(true);
     };
 
-    // Best signal when available.
-    if (typeof element.requestVideoFrameCallback === 'function') {
-      const onFrame = () => {
-        if (cancelled) return;
-        if (element.videoWidth > 0 && element.videoHeight > 0) {
-          markRendering();
-          return;
-        }
-        rafId = element.requestVideoFrameCallback(onFrame);
-      };
-      rafId = element.requestVideoFrameCallback(onFrame);
-    }
-
-    // Fallback: detect that playback is advancing + has dimensions.
+    // Detect playback health and only render when frames are healthy.
     intervalId = window.setInterval(() => {
       if (cancelled) return;
       const hasDims = element.videoWidth > 0 && element.videoHeight > 0;
@@ -160,11 +147,12 @@ function VideoPlayer({
         stalledTicks += 1;
       }
       stableTicks = advanced ? stableTicks + 1 : 0;
-      if (hasDims && stableTicks >= 2) {
+      if (hasDims && stableTicks >= 2 && !suppressRenderingUntilHealthyFrame) {
         markRendering();
       }
       // If frames stop advancing for ~1.5s, treat video as stalled and show avatar fallback.
       if (stalledTicks >= 6) {
+        suppressRenderingUntilHealthyFrame = true;
         setIsVideoRendering(false);
       }
 
@@ -191,10 +179,12 @@ function VideoPlayer({
           if (looksBlack) {
             blackFrameTicks += 1;
             if (blackFrameTicks >= 4) {
+              suppressRenderingUntilHealthyFrame = true;
               setIsVideoRendering(false);
             }
           } else {
             blackFrameTicks = 0;
+            suppressRenderingUntilHealthyFrame = false;
             if (hasDims && stableTicks >= 1) {
               markRendering();
             }
@@ -208,8 +198,6 @@ function VideoPlayer({
     return () => {
       cancelled = true;
       if (intervalId) window.clearInterval(intervalId);
-      // requestVideoFrameCallback can't be cancelled directly; we just gate via `cancelled`.
-      if (rafId) rafId = null;
     };
   }, [shouldShowVideo]);
 
