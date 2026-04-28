@@ -74,7 +74,7 @@ async def send_waiting_room_state(room_id: str):
         "requests": manager.get_waiting_requests(room_id),
     }
 
-    await manager.send_to_role(room_id, "host", payload)
+    await manager.broadcast_to_room(room_id, payload)
 
 
 async def sync_joined_participants(room_id: str):

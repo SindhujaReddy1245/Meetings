@@ -78,6 +78,19 @@ class ConnectionManager:
                 except Exception as e:
                     logger.error(f"Error sending message to client: {e}")
 
+    async def broadcast_to_room(self, room_id: str, message: dict, sender: WebSocket = None):
+        if room_id not in self.active_connections:
+            return
+
+        for connection in list(self.active_connections[room_id]):
+            if connection == sender:
+                continue
+
+            try:
+                await connection.send_json(message)
+            except Exception as e:
+                logger.error(f"Error broadcasting room message in {room_id}: {e}")
+
     async def send_to_client(self, room_id: str, client_id: str, message: dict):
         if room_id not in self.user_records:
             return
