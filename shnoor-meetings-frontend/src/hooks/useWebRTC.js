@@ -247,7 +247,34 @@ export function useWebRTC(roomId, options = {}) {
       isAudioEnabled: audioEnabled,
       isVideoEnabled: videoEnabled,
     });
-  }, [getEffectiveMediaState, roomId, sendSignalingMessage, startSessionTracking]);
+
+    // Publish explicit media state right after join so peers don't assume video-on defaults.
+    sendSignalingMessage({
+      type: 'participant-update',
+      name: displayName.current,
+      picture: currentUser.current?.picture || null,
+      role: isHost.current ? 'host' : 'participant',
+      isHandRaised: false,
+      isSharingScreen: false,
+      isAudioEnabled: audioEnabled,
+      isVideoEnabled: videoEnabled,
+    });
+
+    // Retry once in case the first update races with peer setup.
+    window.setTimeout(() => {
+      const currentMedia = getEffectiveMediaState();
+      sendSignalingMessage({
+        type: 'participant-update',
+        name: displayName.current,
+        picture: currentUser.current?.picture || null,
+        role: isHost.current ? 'host' : 'participant',
+        isHandRaised,
+        isSharingScreen,
+        isAudioEnabled: currentMedia.audioEnabled,
+        isVideoEnabled: currentMedia.videoEnabled,
+      });
+    }, 1200);
+  }, [getEffectiveMediaState, isHandRaised, isSharingScreen, roomId, sendSignalingMessage, startSessionTracking]);
 
   const createPeerConnection = useCallback((peerId, stream) => {
     if (!peerId || !stream) {
@@ -370,6 +397,7 @@ export function useWebRTC(roomId, options = {}) {
             role: data.role || prev[peerId]?.role || 'participant',
             isHandRaised: prev[peerId]?.isHandRaised || false,
             isSharingScreen: prev[peerId]?.isSharingScreen || false,
+            hasPublishedMediaState: prev[peerId]?.hasPublishedMediaState || false,
             isAudioEnabled: typeof data.isAudioEnabled === 'boolean'
               ? data.isAudioEnabled
               : prev[peerId]?.isAudioEnabled ?? true,
@@ -407,6 +435,7 @@ export function useWebRTC(roomId, options = {}) {
             role: data.role || prev[peerId]?.role || 'participant',
             isHandRaised: prev[peerId]?.isHandRaised || false,
             isSharingScreen: prev[peerId]?.isSharingScreen || false,
+            hasPublishedMediaState: prev[peerId]?.hasPublishedMediaState || false,
             isAudioEnabled: prev[peerId]?.isAudioEnabled ?? true,
             isVideoEnabled: prev[peerId]?.isVideoEnabled ?? false,
           },
@@ -500,6 +529,7 @@ export function useWebRTC(roomId, options = {}) {
             role: data.role || prev[peerId]?.role || 'participant',
             isHandRaised: typeof data.isHandRaised === 'boolean' ? data.isHandRaised : prev[peerId]?.isHandRaised,
             isSharingScreen: typeof data.isSharingScreen === 'boolean' ? data.isSharingScreen : prev[peerId]?.isSharingScreen,
+            hasPublishedMediaState: true,
             isAudioEnabled: typeof data.isAudioEnabled === 'boolean' ? data.isAudioEnabled : prev[peerId]?.isAudioEnabled ?? true,
             isVideoEnabled: typeof data.isVideoEnabled === 'boolean' ? data.isVideoEnabled : prev[peerId]?.isVideoEnabled ?? false,
           },
@@ -538,6 +568,10 @@ export function useWebRTC(roomId, options = {}) {
                 isSharingScreen: typeof participant.isSharingScreen === 'boolean'
                   ? participant.isSharingScreen
                   : prev[participant.id]?.isSharingScreen || false,
+                hasPublishedMediaState: typeof participant.isVideoEnabled === 'boolean'
+                  || typeof participant.isAudioEnabled === 'boolean'
+                  || prev[participant.id]?.hasPublishedMediaState
+                  || false,
                 isAudioEnabled: typeof participant.isAudioEnabled === 'boolean'
                   ? participant.isAudioEnabled
                   : prev[participant.id]?.isAudioEnabled ?? true,

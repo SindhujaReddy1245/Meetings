@@ -349,6 +349,7 @@ export default function VideoGrid({
 
   const remoteTiles = useMemo(() => (
     Object.entries(remoteStreams).map(([peerId, stream]) => ({
+      hasPublishedMediaState: participantsMetadata[peerId]?.hasPublishedMediaState ?? false,
       id: peerId,
       stream,
       label: participantsMetadata[peerId]?.name || 'Participant',
@@ -357,8 +358,10 @@ export default function VideoGrid({
       isSharingScreen: participantsMetadata[peerId]?.isSharingScreen,
       isHost: participantsMetadata[peerId]?.role === 'host',
       isAudioEnabled: participantsMetadata[peerId]?.isAudioEnabled ?? true,
-      // Default remote video to false until explicit participant state arrives.
-      isVideoEnabled: participantsMetadata[peerId]?.isVideoEnabled ?? false,
+      // Do not render remote video unless that peer explicitly published media state.
+      isVideoEnabled: (participantsMetadata[peerId]?.hasPublishedMediaState ?? false)
+        ? (participantsMetadata[peerId]?.isVideoEnabled ?? false)
+        : false,
       isLocal: false,
     }))
   ), [participantsMetadata, remoteStreams]);
