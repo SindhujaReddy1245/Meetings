@@ -436,6 +436,7 @@ export default function VideoGrid({
   isSharingScreen = false,
   isAudioEnabled = true,
   isVideoEnabled = true,
+  forceRemoteAvatarOnly = false,
   getPeerConnection,
 }) {
   // kept for future interactions (e.g. pin), but the UI stays in grid mode always
@@ -554,7 +555,7 @@ export default function VideoGrid({
               audioLevel={audioLevels[tile.id] || 0}
               isAudioEnabled={tile.isAudioEnabled}
               isVideoEnabled={tile.isVideoEnabled}
-              forceAvatarOnly={!tile.isLocal && localIsHost}
+              forceAvatarOnly={!tile.isLocal && forceRemoteAvatarOnly}
             />
           </button>
         ))}

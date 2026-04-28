@@ -273,6 +273,7 @@ export default function MeetingRoom() {
                 isSharingScreen={isSharingScreen}
                 isAudioEnabled={isAudioEnabled}
                 isVideoEnabled={isVideoEnabled}
+                forceRemoteAvatarOnly={shouldShowHostControls}
                 getPeerConnection={getPeerConnection}
               />
             )}
