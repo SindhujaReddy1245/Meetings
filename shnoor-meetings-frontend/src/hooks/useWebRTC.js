@@ -189,10 +189,10 @@ export function useWebRTC(roomId, options = {}) {
 
     return {
       audioEnabled: audioTrack
-        ? (audioTrack.readyState === 'live' && audioTrack.enabled)
+        ? (audioTrack.readyState === 'live' && audioTrack.enabled && audioTrack.muted !== true)
         : false,
       videoEnabled: videoTrack
-        ? (videoTrack.readyState === 'live' && videoTrack.enabled)
+        ? (videoTrack.readyState === 'live' && videoTrack.enabled && videoTrack.muted !== true)
         : false,
     };
   }, [localStream]);
@@ -779,8 +779,8 @@ export function useWebRTC(roomId, options = {}) {
 
             if (isMounted) {
               setLocalStream(stream);
-              setIsAudioEnabled(audioTrack ? audioTrack.enabled : false);
-              setIsVideoEnabled(videoTrack ? videoTrack.enabled : false);
+              setIsAudioEnabled(audioTrack ? (audioTrack.enabled && audioTrack.muted !== true) : false);
+              setIsVideoEnabled(videoTrack ? (videoTrack.enabled && videoTrack.muted !== true) : false);
             }
           } catch (mediaAcquisitionError) {
             console.error('Error accessing media devices.', mediaAcquisitionError);
