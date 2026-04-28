@@ -240,11 +240,19 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, client_id: str)
                         manager.add_accepted_identity(room_id, removed_request.get("user_id"))
                         manager.add_accepted_identity(room_id, removed_request.get("email"))
                 await send_waiting_room_state(room_id)
-                await manager.send_to_client(room_id, target_id, {
+                response_payload = {
                     "sender": client_id,
                     **data,
                     "type": "accepted" if msg_type in {"admit", "accept_user"} else "deny",
-                })
+                }
+                await manager.send_to_client(room_id, target_id, response_payload)
+                if removed_request:
+                    await manager.send_to_identity(
+                        room_id,
+                        removed_request.get("user_id"),
+                        removed_request.get("email"),
+                        response_payload,
+                    )
                 continue
 
             if msg_type == "participant-update":

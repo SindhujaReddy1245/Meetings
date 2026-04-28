@@ -101,6 +101,26 @@ class ConnectionManager:
         except Exception as e:
             logger.error(f"Error sending websocket message: {e}")
 
+    async def send_to_identity(self, room_id: str, user_id: str | None, email: str | None, message: dict):
+        if room_id not in self.connection_users:
+            return
+
+        normalized_email = (email or "").strip().lower()
+
+        for connection, metadata in list(self.connection_users[room_id].items()):
+            if not metadata:
+                continue
+
+            matches_user = bool(user_id and metadata.get("user_id") == user_id)
+            matches_email = bool(normalized_email and (metadata.get("email") or "").strip().lower() == normalized_email)
+            if not (matches_user or matches_email):
+                continue
+
+            try:
+                await connection.send_json(message)
+            except Exception as e:
+                logger.error(f"Error sending targeted identity message in room {room_id}: {e}")
+
     async def send_to_role(self, room_id: str, role: str, message: dict):
         if room_id not in self.connection_users:
             return
