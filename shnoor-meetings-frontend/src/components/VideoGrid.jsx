@@ -77,18 +77,23 @@ function VideoPlayer({
     }
 
     const syncTrackState = () => {
-      const hasLiveTrack = (
-        videoTrack.readyState === 'live'
-        && videoTrack.enabled !== false
-        && videoTrack.muted !== true
-      );
+      // For remote tracks, browser sets `muted = true` when no data has arrived yet —
+      // this is a network/buffering state, NOT the user's camera-off state.
+      // Only local tracks should use the muted flag as a signal.
+      const hasLiveTrack = isLocal
+        ? (
+          videoTrack.readyState === 'live'
+          && videoTrack.enabled !== false
+          && videoTrack.muted !== true
+        )
+        : (
+          videoTrack.readyState === 'live'
+          && videoTrack.enabled !== false
+        );
       setHasLiveVideoTrackState(hasLiveTrack);
       if (!hasLiveTrack) {
         // Immediately fall back to avatar tile instead of leaving a black video layer.
         setIsVideoRendering(false);
-        if (!isLocal) {
-          setIsRemoteVideoSuppressed(true);
-        }
       }
     };
 
@@ -239,9 +244,8 @@ function VideoPlayer({
             }
           }
         } catch {
-          // Canvas probe failed (cross-origin or GPU issue). For remote tiles, don't
-          // aggressively hide the video — just leave the current state as-is so the
-          // tile doesn't flicker to black unexpectedly.
+          // Canvas probe failed (cross-origin or GPU issue). Don't aggressively hide
+          // the video — leave current state as-is to avoid flickering to black.
           if (!alreadyRendering && hasDims && advanced) {
             markRendering();
           }
