@@ -51,6 +51,7 @@ function VideoPlayer({
   const shouldShowVideo = Boolean(isVideoEnabled) && hasLiveVideoTrackState;
   const ringStrength = Math.max(0, Math.min(audioLevel * 18, 1));
   const showVideo = shouldShowVideo && videoReady && isVideoRendering;
+  const shouldRenderVideoElement = isLocal ? shouldShowVideo : showVideo;
 
   useEffect(() => {
     const videoTrack = stream?.getVideoTracks?.()[0] || null;
@@ -257,7 +258,7 @@ function VideoPlayer({
             : 'border-gray-700/50 shadow-2xl'
         }`}
       >
-        {shouldShowVideo && (
+        {shouldRenderVideoElement && (
           <video
             ref={videoRef}
             autoPlay
