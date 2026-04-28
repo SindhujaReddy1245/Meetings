@@ -121,6 +121,28 @@ class ConnectionManager:
             except Exception as e:
                 logger.error(f"Error sending targeted identity message in room {room_id}: {e}")
 
+    def get_client_ids_for_identity(self, room_id: str, user_id: str | None, email: str | None):
+        if room_id not in self.connection_users:
+            return set()
+
+        normalized_email = (email or "").strip().lower()
+        matches = set()
+
+        for metadata in self.connection_users.get(room_id, {}).values():
+            if not metadata:
+                continue
+
+            matches_user = bool(user_id and metadata.get("user_id") == user_id)
+            matches_email = bool(normalized_email and (metadata.get("email") or "").strip().lower() == normalized_email)
+            if not (matches_user or matches_email):
+                continue
+
+            client_id = metadata.get("client_id")
+            if client_id:
+                matches.add(client_id)
+
+        return matches
+
     async def send_to_role(self, room_id: str, role: str, message: dict):
         if room_id not in self.connection_users:
             return

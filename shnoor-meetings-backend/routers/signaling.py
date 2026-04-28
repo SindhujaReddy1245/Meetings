@@ -239,6 +239,14 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, client_id: str)
                     if removed_request:
                         manager.add_accepted_identity(room_id, removed_request.get("user_id"))
                         manager.add_accepted_identity(room_id, removed_request.get("email"))
+                        # If the participant reconnected and now has a different client_id,
+                        # mark all matching active client_ids as accepted too.
+                        for admitted_client_id in manager.get_client_ids_for_identity(
+                            room_id,
+                            removed_request.get("user_id"),
+                            removed_request.get("email"),
+                        ):
+                            manager.add_accepted_participant(room_id, admitted_client_id)
                 await send_waiting_room_state(room_id)
                 response_payload = {
                     "sender": client_id,
