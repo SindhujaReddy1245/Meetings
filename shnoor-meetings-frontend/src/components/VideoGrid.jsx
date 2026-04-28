@@ -503,6 +503,7 @@ export default function VideoGrid({
   localStream,
   remoteStreams,
   participantsMetadata = {},
+  localClientId = null,
   localHandRaised = false,
   localParticipantName = 'You',
   localParticipantPicture = null,
@@ -516,11 +517,21 @@ export default function VideoGrid({
   // kept for future interactions (e.g. pin), but the UI stays in grid mode always
   const [selectedTile, setSelectedTile] = useState(null);
 
-  const remoteTiles = useMemo(() => (
-    Object.entries(remoteStreams).map(([peerId, stream]) => ({
+  const remoteTiles = useMemo(() => {
+    const remoteIds = new Set([
+      ...Object.keys(remoteStreams || {}),
+      ...Object.keys(participantsMetadata || {}),
+    ]);
+
+    if (localClientId) {
+      remoteIds.delete(localClientId);
+    }
+    remoteIds.delete('local');
+
+    return Array.from(remoteIds).map((peerId) => ({
       hasPublishedMediaState: participantsMetadata[peerId]?.hasPublishedMediaState ?? false,
       id: peerId,
-      stream,
+      stream: remoteStreams[peerId] || null,
       label: participantsMetadata[peerId]?.name || 'Participant',
       picture: participantsMetadata[peerId]?.picture || null,
       isHandRaised: participantsMetadata[peerId]?.isHandRaised,
@@ -532,8 +543,8 @@ export default function VideoGrid({
         ? (participantsMetadata[peerId]?.isVideoEnabled ?? false)
         : false,
       isLocal: false,
-    }))
-  ), [participantsMetadata, remoteStreams]);
+    }));
+  }, [localClientId, participantsMetadata, remoteStreams]);
 
   const localTile = useMemo(() => ({
     id: 'local',
@@ -558,7 +569,7 @@ export default function VideoGrid({
 
   const standardGridTiles = useMemo(() => {
     const tiles = [localTile, ...remoteTiles]
-      .filter((tile) => tile.stream)
+      .filter((tile) => tile.isLocal ? tile.stream : (tile.stream || tile.label))
       .sort((left, right) => {
         const leftLevel = audioLevels[left.id] || 0;
         const rightLevel = audioLevels[right.id] || 0;
@@ -572,7 +583,7 @@ export default function VideoGrid({
 
   const orderedStandardTiles = useMemo(() => (
     [localTile, ...remoteTiles]
-      .filter((tile) => tile.stream)
+      .filter((tile) => tile.isLocal ? tile.stream : (tile.stream || tile.label))
       .sort((left, right) => {
         const leftLevel = audioLevels[left.id] || 0;
         const rightLevel = audioLevels[right.id] || 0;
@@ -608,7 +619,7 @@ export default function VideoGrid({
           50% { transform: scale(1.10); opacity: 0.95; }
         }
       `}</style>
-      {remoteTiles.map((tile) => (
+      {remoteTiles.filter((tile) => tile.stream).map((tile) => (
         <RemoteAudio key={`audio-${tile.id}`} stream={tile.stream} />
       ))}
       <div className={`grid gap-6 w-full ${standardGridTiles} mx-auto items-center justify-items-center`}>
@@ -618,7 +629,7 @@ export default function VideoGrid({
             onClick={() => setSelectedTile(tile.id)}
             className="w-full"
           >
-            {!tile.isLocal && forceRemoteAvatarOnly ? (
+            {!tile.isLocal && (forceRemoteAvatarOnly || !tile.stream) ? (
               <AvatarOnlyTile
                 label={tile.label}
                 picture={tile.picture}

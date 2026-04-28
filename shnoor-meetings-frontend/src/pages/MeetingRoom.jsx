@@ -266,6 +266,7 @@ export default function MeetingRoom() {
                 localStream={localStream}
                 remoteStreams={remoteStreams}
                 participantsMetadata={participantsMetadata}
+                localClientId={localClientId}
                 localHandRaised={isHandRaised}
                 localParticipantName={displayName || 'You'}
                 localParticipantPicture={currentUser?.picture || null}
@@ -273,7 +274,6 @@ export default function MeetingRoom() {
                 isSharingScreen={isSharingScreen}
                 isAudioEnabled={isAudioEnabled}
                 isVideoEnabled={isVideoEnabled}
-                forceRemoteAvatarOnly={shouldShowHostControls}
                 getPeerConnection={getPeerConnection}
               />
             )}
