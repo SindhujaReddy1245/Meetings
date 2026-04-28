@@ -91,8 +91,14 @@ export function useWebRTC(roomId, options = {}) {
   const joinRoomCallbackRef = useRef(null);
   const handleSignalingDataRef = useRef(null);
   const pendingMessagesRef = useRef([]);
+  const participantStateHeartbeatRef = useRef(null);
 
   const cleanupConnection = useCallback(() => {
+    if (participantStateHeartbeatRef.current) {
+      window.clearInterval(participantStateHeartbeatRef.current);
+      participantStateHeartbeatRef.current = null;
+    }
+
     if (ws.current) {
       try {
         ws.current.close();
@@ -274,7 +280,14 @@ export function useWebRTC(roomId, options = {}) {
         isVideoEnabled: currentMedia.videoEnabled,
       });
     }, 1200);
-  }, [getEffectiveMediaState, isHandRaised, isSharingScreen, roomId, sendSignalingMessage, startSessionTracking]);
+
+    if (participantStateHeartbeatRef.current) {
+      window.clearInterval(participantStateHeartbeatRef.current);
+    }
+    participantStateHeartbeatRef.current = window.setInterval(() => {
+      syncParticipantState();
+    }, 1500);
+  }, [getEffectiveMediaState, isHandRaised, isSharingScreen, roomId, sendSignalingMessage, startSessionTracking, syncParticipantState]);
 
   const createPeerConnection = useCallback((peerId, stream) => {
     if (!peerId || !stream) {
