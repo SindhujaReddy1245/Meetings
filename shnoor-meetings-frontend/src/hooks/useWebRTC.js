@@ -188,7 +188,7 @@ export function useWebRTC(roomId, options = {}) {
     const videoTrack = stream?.getVideoTracks?.()[0];
 
     return {
-      // Do not check `muted` here — local tracks can be muted by the browser briefly
+      // Do not check `muted` — local tracks can be briefly muted by the browser
       // during device switches and it does not mean the user turned off their camera/mic.
       audioEnabled: audioTrack
         ? (audioTrack.readyState === 'live' && audioTrack.enabled)
@@ -431,6 +431,33 @@ export function useWebRTC(roomId, options = {}) {
     const isTargetedToCurrentClient = !target
       || target === clientId.current
       || (currentMeetingUserId && target === currentMeetingUserId);
+
+    // ── Handle admission messages BEFORE any sender/target guards ───────────────
+    // The server sends admit/accepted/deny directly to the participant with no
+    // sender field, so peerId resolves to undefined and the guards below would
+    // silently drop the message — meaning the participant never gets redirected.
+    if (type === 'admit' || type === 'accepted') {
+      sessionStorage.setItem(`meeting_admitted_${roomId}`, 'true');
+      window.dispatchEvent(new CustomEvent('meeting-admitted', { detail: { roomId } }));
+      return;
+    }
+
+    if (type === 'deny') {
+      window.dispatchEvent(new CustomEvent('meeting-denied', { detail: { roomId } }));
+      return;
+    }
+
+    if (type === 'join-blocked') {
+      joinedRoomRef.current = false;
+      if (participantStateHeartbeatRef.current) {
+        window.clearInterval(participantStateHeartbeatRef.current);
+        participantStateHeartbeatRef.current = null;
+      }
+      sessionStorage.removeItem(`meeting_admitted_${roomId}`);
+      window.dispatchEvent(new CustomEvent('meeting-denied', { detail: { roomId } }));
+      return;
+    }
+    // ────────────────────────────────────────────────────────────────────────────
 
     if (peerId === clientId.current) {
       return;
@@ -675,29 +702,6 @@ export function useWebRTC(roomId, options = {}) {
         setActiveJoinRequests(Array.isArray(data.requests) ? data.requests : []);
         break;
 
-      case 'admit':
-      case 'accepted':
-        sessionStorage.setItem(`meeting_admitted_${roomId}`, 'true');
-        window.dispatchEvent(new CustomEvent('meeting-admitted', { detail: { roomId } }));
-        if (!joinedRoomRef.current && ws.current?.readyState === WebSocket.OPEN) {
-          joinRoomCallbackRef.current?.();
-        }
-        break;
-
-      case 'deny':
-        window.dispatchEvent(new CustomEvent('meeting-denied', { detail: { roomId } }));
-        break;
-
-      case 'join-blocked':
-        joinedRoomRef.current = false;
-        if (participantStateHeartbeatRef.current) {
-          window.clearInterval(participantStateHeartbeatRef.current);
-          participantStateHeartbeatRef.current = null;
-        }
-        sessionStorage.removeItem(`meeting_admitted_${roomId}`);
-        window.dispatchEvent(new CustomEvent('meeting-denied', { detail: { roomId } }));
-        break;
-
       default:
         break;
     }
@@ -758,34 +762,6 @@ export function useWebRTC(roomId, options = {}) {
       let stream = new MediaStream();
 
       try {
-        ws.current = new WebSocket(buildWebSocketUrl(`/ws/${roomId}/${clientId.current}`));
-
-        ws.current.onopen = () => {
-          pendingMessagesRef.current.forEach((message) => {
-            ws.current?.send(JSON.stringify(message));
-          });
-          pendingMessagesRef.current = [];
-
-          if (isHost.current) {
-            ws.current?.send(JSON.stringify({
-              type: 'host_join',
-              user_id: currentUser.current?.meetingUserId || clientId.current,
-              email: currentUser.current?.email || null,
-              name: displayName.current,
-              picture: currentUser.current?.picture || null,
-            }));
-          }
-
-          if (autoJoin) {
-            joinRoomCallbackRef.current?.();
-          }
-        };
-
-        ws.current.onmessage = async (event) => {
-          const message = JSON.parse(event.data);
-          await handleSignalingDataRef.current?.(message, stream || originalStream.current);
-        };
-
         if (acquireMedia) {
           try {
             const cachedPreJoinStream = consumePreJoinStream(roomId);
@@ -818,7 +794,7 @@ export function useWebRTC(roomId, options = {}) {
 
             if (isMounted) {
               setLocalStream(stream);
-              // Use .enabled directly — do not check .muted here as it can be briefly
+              // Use .enabled directly — do not check .muted as it can be briefly
               // true during device initialisation and would incorrectly show camera as off.
               setIsAudioEnabled(audioTrack ? audioTrack.enabled : false);
               setIsVideoEnabled(videoTrack ? videoTrack.enabled : false);
@@ -838,6 +814,34 @@ export function useWebRTC(roomId, options = {}) {
         } else {
           originalStream.current = stream;
         }
+
+        ws.current = new WebSocket(buildWebSocketUrl(`/ws/${roomId}/${clientId.current}`));
+
+        ws.current.onopen = () => {
+          pendingMessagesRef.current.forEach((message) => {
+            ws.current?.send(JSON.stringify(message));
+          });
+          pendingMessagesRef.current = [];
+
+          if (isHost.current) {
+            ws.current?.send(JSON.stringify({
+              type: 'host_join',
+              user_id: currentUser.current?.meetingUserId || clientId.current,
+              email: currentUser.current?.email || null,
+              name: displayName.current,
+              picture: currentUser.current?.picture || null,
+            }));
+          }
+
+          if (autoJoin) {
+            joinRoomCallbackRef.current?.();
+          }
+        };
+
+        ws.current.onmessage = async (event) => {
+          const message = JSON.parse(event.data);
+          await handleSignalingDataRef.current?.(message, stream || originalStream.current);
+        };
       } catch (error) {
         console.error('Error starting WebRTC connection.', error);
         if (isMounted) {
@@ -1064,6 +1068,7 @@ export function useWebRTC(roomId, options = {}) {
   }, [addMessage, sendSignalingMessage]);
 
   const getPeerConnection = useCallback((peerId) => peerConnections.current[peerId] || null, []);
+
   const leaveRoom = useCallback(() => {
     cleanupConnection();
   }, [cleanupConnection]);
