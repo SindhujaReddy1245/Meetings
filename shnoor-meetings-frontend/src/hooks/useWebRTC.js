@@ -424,12 +424,16 @@ export function useWebRTC(roomId, options = {}) {
   const handleSignalingData = useCallback(async (data, stream) => {
     const { type, sender, target } = data;
     const peerId = sender || data.client_id;
+    const currentMeetingUserId = currentUser.current?.meetingUserId;
+    const isTargetedToCurrentClient = !target
+      || target === clientId.current
+      || (currentMeetingUserId && target === currentMeetingUserId);
 
     if (peerId === clientId.current) {
       return;
     }
 
-    if (target && target !== clientId.current) {
+    if (!isTargetedToCurrentClient) {
       return;
     }
 
