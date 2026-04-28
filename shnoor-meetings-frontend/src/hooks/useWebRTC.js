@@ -188,11 +188,13 @@ export function useWebRTC(roomId, options = {}) {
     const videoTrack = stream?.getVideoTracks?.()[0];
 
     return {
+      // Do not check `muted` here — local tracks can be muted by the browser briefly
+      // during device switches and it does not mean the user turned off their camera/mic.
       audioEnabled: audioTrack
-        ? (audioTrack.readyState === 'live' && audioTrack.enabled && audioTrack.muted !== true)
+        ? (audioTrack.readyState === 'live' && audioTrack.enabled)
         : false,
       videoEnabled: videoTrack
-        ? (videoTrack.readyState === 'live' && videoTrack.enabled && videoTrack.muted !== true)
+        ? (videoTrack.readyState === 'live' && videoTrack.enabled)
         : false,
     };
   }, [localStream]);
@@ -338,11 +340,12 @@ export function useWebRTC(roomId, options = {}) {
           }));
         };
 
-        // Conservative guard: if remote video track mutes/ends, always switch tile to avatar.
-        incomingTrack.addEventListener('mute', forceRemoteVideoOff);
+        // Only force video off when the track fully ends, NOT on mute.
+        // Remote tracks fire `mute` on every network hiccup and at stream startup —
+        // treating that as camera-off causes tiles to go black during normal operation.
         incomingTrack.addEventListener('ended', forceRemoteVideoOff);
 
-        if (incomingTrack.readyState !== 'live' || incomingTrack.muted) {
+        if (incomingTrack.readyState !== 'live') {
           forceRemoteVideoOff();
         }
       }
@@ -359,10 +362,10 @@ export function useWebRTC(roomId, options = {}) {
           }));
         };
 
-        incomingTrack.addEventListener('mute', forceRemoteAudioOff);
+        // Same reasoning — only react to track ending, not mute events.
         incomingTrack.addEventListener('ended', forceRemoteAudioOff);
 
-        if (incomingTrack.readyState !== 'live' || incomingTrack.muted) {
+        if (incomingTrack.readyState !== 'live') {
           forceRemoteAudioOff();
         }
       }
@@ -676,6 +679,9 @@ export function useWebRTC(roomId, options = {}) {
       case 'accepted':
         sessionStorage.setItem(`meeting_admitted_${roomId}`, 'true');
         window.dispatchEvent(new CustomEvent('meeting-admitted', { detail: { roomId } }));
+        if (!joinedRoomRef.current && ws.current?.readyState === WebSocket.OPEN) {
+          joinRoomCallbackRef.current?.();
+        }
         break;
 
       case 'deny':
@@ -683,6 +689,11 @@ export function useWebRTC(roomId, options = {}) {
         break;
 
       case 'join-blocked':
+        joinedRoomRef.current = false;
+        if (participantStateHeartbeatRef.current) {
+          window.clearInterval(participantStateHeartbeatRef.current);
+          participantStateHeartbeatRef.current = null;
+        }
         sessionStorage.removeItem(`meeting_admitted_${roomId}`);
         window.dispatchEvent(new CustomEvent('meeting-denied', { detail: { roomId } }));
         break;
@@ -747,6 +758,34 @@ export function useWebRTC(roomId, options = {}) {
       let stream = new MediaStream();
 
       try {
+        ws.current = new WebSocket(buildWebSocketUrl(`/ws/${roomId}/${clientId.current}`));
+
+        ws.current.onopen = () => {
+          pendingMessagesRef.current.forEach((message) => {
+            ws.current?.send(JSON.stringify(message));
+          });
+          pendingMessagesRef.current = [];
+
+          if (isHost.current) {
+            ws.current?.send(JSON.stringify({
+              type: 'host_join',
+              user_id: currentUser.current?.meetingUserId || clientId.current,
+              email: currentUser.current?.email || null,
+              name: displayName.current,
+              picture: currentUser.current?.picture || null,
+            }));
+          }
+
+          if (autoJoin) {
+            joinRoomCallbackRef.current?.();
+          }
+        };
+
+        ws.current.onmessage = async (event) => {
+          const message = JSON.parse(event.data);
+          await handleSignalingDataRef.current?.(message, stream || originalStream.current);
+        };
+
         if (acquireMedia) {
           try {
             const cachedPreJoinStream = consumePreJoinStream(roomId);
@@ -779,8 +818,10 @@ export function useWebRTC(roomId, options = {}) {
 
             if (isMounted) {
               setLocalStream(stream);
-              setIsAudioEnabled(audioTrack ? (audioTrack.enabled && audioTrack.muted !== true) : false);
-              setIsVideoEnabled(videoTrack ? (videoTrack.enabled && videoTrack.muted !== true) : false);
+              // Use .enabled directly — do not check .muted here as it can be briefly
+              // true during device initialisation and would incorrectly show camera as off.
+              setIsAudioEnabled(audioTrack ? audioTrack.enabled : false);
+              setIsVideoEnabled(videoTrack ? videoTrack.enabled : false);
             }
           } catch (mediaAcquisitionError) {
             console.error('Error accessing media devices.', mediaAcquisitionError);
@@ -797,34 +838,6 @@ export function useWebRTC(roomId, options = {}) {
         } else {
           originalStream.current = stream;
         }
-
-        ws.current = new WebSocket(buildWebSocketUrl(`/ws/${roomId}/${clientId.current}`));
-
-        ws.current.onopen = () => {
-          pendingMessagesRef.current.forEach((message) => {
-            ws.current?.send(JSON.stringify(message));
-          });
-          pendingMessagesRef.current = [];
-
-          if (isHost.current) {
-            ws.current?.send(JSON.stringify({
-              type: 'host_join',
-              user_id: currentUser.current?.meetingUserId || clientId.current,
-              email: currentUser.current?.email || null,
-              name: displayName.current,
-              picture: currentUser.current?.picture || null,
-            }));
-          }
-
-          if (autoJoin) {
-            joinRoomCallbackRef.current?.();
-          }
-        };
-
-        ws.current.onmessage = async (event) => {
-          const message = JSON.parse(event.data);
-          await handleSignalingDataRef.current?.(message, stream || originalStream.current);
-        };
       } catch (error) {
         console.error('Error starting WebRTC connection.', error);
         if (isMounted) {
@@ -967,7 +980,6 @@ export function useWebRTC(roomId, options = {}) {
             return;
           }
 
-          // Some peer connections may not have an active video sender yet.
           pc.addTrack(screenTrack, screenStream);
         });
 
