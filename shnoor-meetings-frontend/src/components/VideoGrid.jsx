@@ -57,26 +57,34 @@ function VideoPlayer({
 
     if (!videoTrack) {
       setHasLiveVideoTrackState(false);
+      setIsVideoRendering(false);
       return undefined;
     }
 
     const syncTrackState = () => {
-      setHasLiveVideoTrackState(
+      const hasLiveTrack = (
         videoTrack.readyState === 'live'
         && videoTrack.enabled !== false
         && videoTrack.muted !== true
       );
+      setHasLiveVideoTrackState(hasLiveTrack);
+      if (!hasLiveTrack) {
+        // Immediately fall back to avatar tile instead of leaving a black video layer.
+        setIsVideoRendering(false);
+      }
     };
 
     syncTrackState();
     videoTrack.addEventListener('mute', syncTrackState);
     videoTrack.addEventListener('unmute', syncTrackState);
     videoTrack.addEventListener('ended', syncTrackState);
+    const intervalId = window.setInterval(syncTrackState, 500);
 
     return () => {
       videoTrack.removeEventListener('mute', syncTrackState);
       videoTrack.removeEventListener('unmute', syncTrackState);
       videoTrack.removeEventListener('ended', syncTrackState);
+      window.clearInterval(intervalId);
     };
   }, [stream]);
 
