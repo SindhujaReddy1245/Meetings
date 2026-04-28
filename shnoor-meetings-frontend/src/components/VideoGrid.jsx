@@ -140,6 +140,7 @@ function VideoPlayer({
       const hasDims = element.videoWidth > 0 && element.videoHeight > 0;
       const timeNow = element.currentTime || 0;
       const advanced = timeNow > lastTime + 0.08;
+      let healthyFrameConfirmed = false;
       if (advanced) {
         lastTime = timeNow;
         stalledTicks = 0;
@@ -147,7 +148,7 @@ function VideoPlayer({
         stalledTicks += 1;
       }
       stableTicks = advanced ? stableTicks + 1 : 0;
-      if (hasDims && stableTicks >= 2 && !suppressRenderingUntilHealthyFrame) {
+      if (isLocal && hasDims && stableTicks >= 2 && !suppressRenderingUntilHealthyFrame) {
         markRendering();
       }
       // If frames stop advancing for ~1.5s, treat video as stalled and show avatar fallback.
@@ -193,13 +194,25 @@ function VideoPlayer({
           } else {
             blackFrameTicks = 0;
             suppressRenderingUntilHealthyFrame = false;
+            healthyFrameConfirmed = true;
             if (hasDims && stableTicks >= 1) {
               markRendering();
             }
           }
         } catch (error) {
-          // Canvas probing can fail transiently; keep existing rendering guards.
+          // Conservative fallback for remote tiles: if probing fails, don't keep black video visible.
+          if (!isLocal) {
+            blackFrameTicks += 1;
+            if (blackFrameTicks >= 2) {
+              suppressRenderingUntilHealthyFrame = true;
+              setIsVideoRendering(false);
+            }
+          }
         }
+      }
+
+      if (!isLocal && (!healthyFrameConfirmed || suppressRenderingUntilHealthyFrame)) {
+        setIsVideoRendering(false);
       }
     }, 250);
 
