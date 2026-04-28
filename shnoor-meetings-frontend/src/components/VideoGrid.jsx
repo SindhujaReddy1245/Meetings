@@ -425,6 +425,80 @@ function RemoteAudio({ stream }) {
   return <audio ref={audioRef} autoPlay playsInline />;
 }
 
+function AvatarOnlyTile({
+  label,
+  picture,
+  isHandRaised = false,
+  isSpeaking = false,
+  isDominantSpeaker = false,
+  featured = false,
+  audioLevel = 0,
+}) {
+  const ringStrength = Math.max(0, Math.min(audioLevel * 18, 1));
+
+  return (
+    <SpeakerHighlight active={isSpeaking} featured={featured}>
+      <div
+        className={`relative overflow-hidden border group flex items-center justify-center transition-all duration-500 ${
+          featured ? 'w-full h-full rounded-3xl bg-black' : 'w-full aspect-video rounded-2xl bg-[radial-gradient(circle_at_top,#31445f_0%,#1f2d44_45%,#142033_100%)]'
+        } ${
+          isSpeaking
+            ? 'border-white/20 shadow-[0_0_0_1px_rgba(255,255,255,0.14)]'
+            : 'border-gray-700/50 shadow-2xl'
+        }`}
+      >
+        <div className="absolute inset-0 flex items-center justify-center">
+          <SpeakerBackdrop active={isSpeaking} featured={featured} />
+          <div className="relative z-10 flex items-center justify-center">
+            {isDominantSpeaker && (
+              <div
+                className={`pointer-events-none absolute rounded-full border-2 border-white/85 ${
+                  featured ? 'h-44 w-44 sm:h-52 sm:w-52' : 'h-32 w-32'
+                }`}
+                style={{
+                  animation: 'meetSpeakerRing 1.25s ease-in-out infinite',
+                  boxShadow: '0 0 0 1px rgba(255,255,255,0.22)',
+                }}
+              />
+            )}
+            <ProfileAvatar
+              name={label}
+              picture={picture}
+              className={featured ? 'h-36 w-36 sm:h-44 sm:w-44' : 'h-24 w-24'}
+              textClass={featured ? 'text-6xl' : 'text-4xl'}
+              ringClassName="border-2 border-white/60"
+            />
+          </div>
+        </div>
+
+        {isHandRaised && (
+          <div className="absolute top-20 right-4 bg-yellow-500 text-white p-2 rounded-full shadow-lg border-2 border-yellow-400 z-10">
+            <span className="text-xs font-bold">RH</span>
+          </div>
+        )}
+
+        <div className="absolute bottom-4 left-4 right-4 flex items-center justify-between">
+          <div className="bg-black/60 backdrop-blur-md rounded-lg text-white font-semibold tracking-wide border border-white/10 shadow-lg px-4 py-1.5 text-sm">
+            {label}
+          </div>
+
+          {isSpeaking && (
+            <div className="flex items-center gap-1 rounded-full bg-black/45 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.2em] text-emerald-100">
+              <span
+                className="h-2 w-2 rounded-full bg-emerald-300"
+                style={{ boxShadow: `0 0 ${10 + (ringStrength * 16)}px rgba(110, 231, 183, 0.9)` }}
+              />
+              Speaking
+            </div>
+          )}
+        </div>
+
+        <div className="absolute inset-0 bg-gradient-to-t from-black/40 via-transparent to-transparent pointer-events-none" />
+      </div>
+    </SpeakerHighlight>
+  );
+}
+
 export default function VideoGrid({
   localStream,
   remoteStreams,
@@ -544,19 +618,30 @@ export default function VideoGrid({
             onClick={() => setSelectedTile(tile.id)}
             className="w-full"
           >
-            <VideoPlayer
-              stream={tile.stream}
-              label={tile.label}
-              picture={tile.picture}
-              isLocal={tile.isLocal}
-              isHandRaised={tile.isHandRaised}
-              isSpeaking={speakingParticipantIds.has(tile.id)}
-              isDominantSpeaker={dominantSpeakerId === tile.id}
-              audioLevel={audioLevels[tile.id] || 0}
-              isAudioEnabled={tile.isAudioEnabled}
-              isVideoEnabled={tile.isVideoEnabled}
-              forceAvatarOnly={!tile.isLocal && forceRemoteAvatarOnly}
-            />
+            {!tile.isLocal && forceRemoteAvatarOnly ? (
+              <AvatarOnlyTile
+                label={tile.label}
+                picture={tile.picture}
+                isHandRaised={tile.isHandRaised}
+                isSpeaking={speakingParticipantIds.has(tile.id)}
+                isDominantSpeaker={dominantSpeakerId === tile.id}
+                audioLevel={audioLevels[tile.id] || 0}
+              />
+            ) : (
+              <VideoPlayer
+                stream={tile.stream}
+                label={tile.label}
+                picture={tile.picture}
+                isLocal={tile.isLocal}
+                isHandRaised={tile.isHandRaised}
+                isSpeaking={speakingParticipantIds.has(tile.id)}
+                isDominantSpeaker={dominantSpeakerId === tile.id}
+                audioLevel={audioLevels[tile.id] || 0}
+                isAudioEnabled={tile.isAudioEnabled}
+                isVideoEnabled={tile.isVideoEnabled}
+                forceAvatarOnly={!tile.isLocal && forceRemoteAvatarOnly}
+              />
+            )}
           </button>
         ))}
       </div>
