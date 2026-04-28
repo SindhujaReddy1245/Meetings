@@ -676,6 +676,10 @@ export function useWebRTC(roomId, options = {}) {
       case 'accepted':
         sessionStorage.setItem(`meeting_admitted_${roomId}`, 'true');
         window.dispatchEvent(new CustomEvent('meeting-admitted', { detail: { roomId } }));
+        // Ensure the admitted participant joins immediately even if UI event timing is missed.
+        if (!joinedRoomRef.current && ws.current?.readyState === WebSocket.OPEN) {
+          joinRoomCallbackRef.current?.();
+        }
         break;
 
       case 'deny':
