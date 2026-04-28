@@ -10,6 +10,7 @@ import { Bot } from 'lucide-react';
 import illustration from '../assets/illustration.png';
 import { buildApiUrl } from '../utils/api';
 import { getCurrentUser } from '../utils/currentUser';
+import { generateUUID } from '../utils/uuid';
 
 function normalizeEventCategory(category) {
   const normalized = `${category || 'meetings'}`.trim().toLowerCase();
@@ -214,7 +215,7 @@ export default function LandingPage() {
   const handleStartInstantMeeting = async () => {
     setIsLoading(true);
     setShowDropdown(false);
-    const frontendRoomId = crypto.randomUUID();
+    const frontendRoomId = generateUUID();
     try {
       const response = await fetch(buildApiUrl('/api/meetings/create'), {
         method: 'POST',
@@ -245,7 +246,7 @@ export default function LandingPage() {
   const handleCreateMeetingLater = async () => {
     setIsLoading(true);
     setShowDropdown(false);
-    const frontendRoomId = crypto.randomUUID();
+    const frontendRoomId = generateUUID();
     try {
       const response = await fetch(buildApiUrl('/api/meetings/create'), {
         method: 'POST',

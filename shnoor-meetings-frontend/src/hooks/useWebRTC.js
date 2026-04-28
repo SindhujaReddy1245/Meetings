@@ -8,6 +8,7 @@ import {
 } from '../utils/meetingUtils';
 import { buildWebSocketUrl, getIceServerConfig } from '../utils/api';
 import { getCurrentUser } from '../utils/currentUser';
+import { generateUUID } from '../utils/uuid';
 
 const ICE_SERVERS = getIceServerConfig();
 
@@ -19,7 +20,7 @@ function getStableClientId(roomId) {
     return existingId;
   }
 
-  const nextId = crypto.randomUUID();
+  const nextId = generateUUID();
   sessionStorage.setItem(storageKey, nextId);
   return nextId;
 }
@@ -188,10 +189,6 @@ export function useWebRTC(roomId, options = {}) {
     const videoTrack = stream?.getVideoTracks?.()[0];
 
     return {
-      // Do NOT check .muted here — on a local track, muted=true can transiently occur
-      // during browser media negotiation even when the user has not muted themselves.
-      // Using it here causes syncParticipantState to broadcast the wrong isVideoEnabled
-      // value to remote peers, making their tile show black instead of the avatar.
       audioEnabled: audioTrack
         ? (audioTrack.readyState === 'live' && audioTrack.enabled)
         : false,
@@ -258,7 +255,6 @@ export function useWebRTC(roomId, options = {}) {
       isVideoEnabled: videoEnabled,
     });
 
-    // Publish explicit media state right after join so peers don't assume video-on defaults.
     sendSignalingMessage({
       type: 'participant-update',
       name: displayName.current,
@@ -270,7 +266,6 @@ export function useWebRTC(roomId, options = {}) {
       isVideoEnabled: videoEnabled,
     });
 
-    // Retry once in case the first update races with peer setup.
     window.setTimeout(() => {
       const currentMedia = getEffectiveMediaState();
       sendSignalingMessage({
@@ -294,7 +289,7 @@ export function useWebRTC(roomId, options = {}) {
   }, [getEffectiveMediaState, isHandRaised, isSharingScreen, roomId, sendSignalingMessage, startSessionTracking, syncParticipantState]);
 
   const createPeerConnection = useCallback((peerId, stream) => {
-    if (!peerId || !stream) {
+    if (!peerId) {
       return null;
     }
 
@@ -304,16 +299,26 @@ export function useWebRTC(roomId, options = {}) {
 
     const pc = new RTCPeerConnection(ICE_SERVERS);
 
-    const audioTracks = stream.getAudioTracks();
-    const videoTracks = stream.getVideoTracks();
+    // Use the provided stream if it has tracks; otherwise start with transceivers only.
+    // This ensures a PeerConnection is always created even if the local stream is an
+    // empty MediaStream (e.g. media permission denied or not yet acquired).
+    const effectiveStream = stream && stream.getTracks().length > 0 ? stream : null;
 
-    stream.getTracks().forEach((track) => pc.addTrack(track, stream));
+    if (effectiveStream) {
+      const audioTracks = effectiveStream.getAudioTracks();
+      const videoTracks = effectiveStream.getVideoTracks();
 
-    if (!audioTracks.length) {
+      effectiveStream.getTracks().forEach((track) => pc.addTrack(track, effectiveStream));
+
+      if (!audioTracks.length) {
+        pc.addTransceiver('audio', { direction: 'recvonly' });
+      }
+      if (!videoTracks.length) {
+        pc.addTransceiver('video', { direction: 'recvonly' });
+      }
+    } else {
+      // No local media — add receive-only transceivers so we can still get remote tracks
       pc.addTransceiver('audio', { direction: 'recvonly' });
-    }
-
-    if (!videoTracks.length) {
       pc.addTransceiver('video', { direction: 'recvonly' });
     }
 
@@ -328,15 +333,6 @@ export function useWebRTC(roomId, options = {}) {
     };
 
     pc.ontrack = (event) => {
-      const incomingTrack = event.track;
-
-      // NOTE: Do NOT listen to track 'mute'/'ended' events here to force isVideoEnabled/isAudioEnabled
-      // to false in participantsMetadata. The remote track's .muted property fires during normal
-      // network buffering — it does NOT mean the remote peer turned their camera/mic off.
-      // Camera/mic state for remote peers comes exclusively from 'participant-update' signaling messages.
-      // Overriding metadata here causes the tile to flash black and then correct itself on the
-      // next heartbeat (1.5s), creating a persistent flicker.
-
       setRemoteStreams((prev) => {
         const nextStream = prev[peerId] ? new MediaStream(prev[peerId].getTracks()) : new MediaStream();
         const replaceTrackByKind = (trackToAdd) => {
@@ -409,15 +405,16 @@ export function useWebRTC(roomId, options = {}) {
 
     switch (type) {
       case 'user-joined': {
-        if (!stream) {
-          return;
-        }
-
+        // FIX: Do NOT return early if stream is falsy. The peer connection must be created
+        // regardless so that remote tracks can be received. createPeerConnection now handles
+        // the case where the local stream has no tracks gracefully.
         const pc = createPeerConnection(peerId, stream);
         if (!pc) {
           return;
         }
 
+        // Eagerly add the participant to metadata so their avatar tile appears immediately,
+        // even before the WebRTC media (ontrack) arrives.
         setParticipantsMetadata((prev) => ({
           ...prev,
           [peerId]: {
@@ -447,15 +444,13 @@ export function useWebRTC(roomId, options = {}) {
       }
 
       case 'offer': {
-        if (!stream) {
-          return;
-        }
-
+        // FIX: Same as user-joined — do not bail out when stream has no tracks.
         const pcOffer = createPeerConnection(peerId, stream);
         if (!pcOffer) {
           return;
         }
 
+        // Eagerly register the participant so their tile shows before media arrives.
         setParticipantsMetadata((prev) => ({
           ...prev,
           [peerId]: {
@@ -811,9 +806,38 @@ export function useWebRTC(roomId, options = {}) {
     };
   }, [acquireMedia, autoJoin, roomId, cleanupConnection]);
 
+  // FIX: When the host admits a participant, eagerly add them to participantsMetadata
+  // so that their avatar tile renders immediately — before the user-joined WebRTC
+  // signaling round-trip completes. Without this, the host sees no tile for the
+  // participant until the full offer/answer/ICE handshake finishes (which can take
+  // several seconds, or fail silently).
   const admitParticipant = useCallback((participantId) => {
     sendSignalingMessage({ type: 'accept_user', target: participantId });
-    setActiveJoinRequests((prev) => prev.filter((request) => request.id !== participantId));
+
+    // Grab the name/picture from the join request before removing it from the list
+    setActiveJoinRequests((prev) => {
+      const request = prev.find((r) => r.id === participantId);
+
+      if (request) {
+        // Pre-populate metadata so the tile appears instantly on the host side
+        setParticipantsMetadata((prevMeta) => ({
+          ...prevMeta,
+          [participantId]: {
+            ...prevMeta[participantId],
+            name: request.name || 'Participant',
+            picture: request.picture || null,
+            role: 'participant',
+            isHandRaised: false,
+            isSharingScreen: false,
+            hasPublishedMediaState: false,
+            isAudioEnabled: true,
+            isVideoEnabled: false,
+          },
+        }));
+      }
+
+      return prev.filter((r) => r.id !== participantId);
+    });
   }, [sendSignalingMessage]);
 
   const denyParticipant = useCallback((participantId) => {
@@ -937,7 +961,6 @@ export function useWebRTC(roomId, options = {}) {
             return;
           }
 
-          // Some peer connections may not have an active video sender yet.
           pc.addTrack(screenTrack, screenStream);
         });
 

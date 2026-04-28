@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { X, Clock, AlignLeft, Video, Calendar } from 'lucide-react';
 import { format, addHours, startOfToday, isBefore } from 'date-fns';
 import { motion, AnimatePresence } from 'framer-motion';
+import { generateUUID } from '../utils/uuid';
 
 function normalizeEventCategory(category) {
   const normalized = `${category || 'meetings'}`.trim().toLowerCase();
@@ -76,13 +77,13 @@ export default function EventModal({ isOpen, onClose, selectedDate, onSave, even
     setValidationMessage('');
     const normalizedCategory = normalizeEventCategory(nextCategory);
     onSave({
-      id: event?.id || crypto.randomUUID(),
+      id: event?.id || generateUUID(),
       title: title || '(No title)',
       description,
       start_time: startDate.toISOString(),
       end_time: endDate.toISOString(),
       category: normalizedCategory,
-      room_id: normalizedCategory === 'meetings' ? (event?.room_id || crypto.randomUUID()) : null,
+      room_id: normalizedCategory === 'meetings' ? (event?.room_id || generateUUID()) : null,
     });
   };
 
