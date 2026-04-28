@@ -5,15 +5,6 @@ import ProfileAvatar from './ProfileAvatar';
 import SpeakerHighlight from './SpeakerHighlight';
 import useActiveSpeaker from '../hooks/useActiveSpeaker';
 
-function hasUsableVideo(stream) {
-  const tracks = stream?.getVideoTracks?.() || [];
-  return tracks.some((track) => (
-    track.readyState === 'live'
-    && track.enabled !== false
-    && track.muted !== true
-  ));
-}
-
 function SpeakerBackdrop({ active = false, featured = false }) {
   if (!active) {
     return null;
@@ -53,13 +44,41 @@ function VideoPlayer({
   const videoRef = useRef(null);
   const [videoReady, setVideoReady] = useState(false);
   const [isVideoRendering, setIsVideoRendering] = useState(false);
+  const [hasLiveVideoTrackState, setHasLiveVideoTrackState] = useState(false);
   const loggedInUser = getCurrentUser();
   const resolvedPicture = isLocal ? (picture || loggedInUser?.picture || null) : picture;
   const resolvedLabel = isLocal ? (label || loggedInUser?.name || loggedInUser?.email || 'You') : label;
-  const hasLiveVideoTrack = hasUsableVideo(stream);
-  const shouldShowVideo = Boolean(isVideoEnabled) && hasLiveVideoTrack;
+  const shouldShowVideo = Boolean(isVideoEnabled) && hasLiveVideoTrackState;
   const ringStrength = Math.max(0, Math.min(audioLevel * 18, 1));
   const showVideo = shouldShowVideo && videoReady && isVideoRendering;
+
+  useEffect(() => {
+    const videoTrack = stream?.getVideoTracks?.()[0] || null;
+
+    if (!videoTrack) {
+      setHasLiveVideoTrackState(false);
+      return undefined;
+    }
+
+    const syncTrackState = () => {
+      setHasLiveVideoTrackState(
+        videoTrack.readyState === 'live'
+        && videoTrack.enabled !== false
+        && videoTrack.muted !== true
+      );
+    };
+
+    syncTrackState();
+    videoTrack.addEventListener('mute', syncTrackState);
+    videoTrack.addEventListener('unmute', syncTrackState);
+    videoTrack.addEventListener('ended', syncTrackState);
+
+    return () => {
+      videoTrack.removeEventListener('mute', syncTrackState);
+      videoTrack.removeEventListener('unmute', syncTrackState);
+      videoTrack.removeEventListener('ended', syncTrackState);
+    };
+  }, [stream]);
 
   useEffect(() => {
     setVideoReady(false);
@@ -77,7 +96,7 @@ function VideoPlayer({
         console.warn('Video autoplay failed for stream', error);
       });
     }
-  }, [hasLiveVideoTrack, isVideoEnabled, stream]);
+  }, [isVideoEnabled, stream]);
 
   useEffect(() => {
     if (!shouldShowVideo) {
