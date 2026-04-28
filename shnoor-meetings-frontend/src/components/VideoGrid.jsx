@@ -46,6 +46,7 @@ function VideoPlayer({
   const [isVideoRendering, setIsVideoRendering] = useState(false);
   const [hasLiveVideoTrackState, setHasLiveVideoTrackState] = useState(false);
   const [isRemoteVideoSuppressed, setIsRemoteVideoSuppressed] = useState(false);
+  const [showRemoteAvatarShield, setShowRemoteAvatarShield] = useState(false);
   const lastVideoTrackIdRef = useRef(null);
   const loggedInUser = getCurrentUser();
   const resolvedPicture = isLocal ? (picture || loggedInUser?.picture || null) : picture;
@@ -53,7 +54,9 @@ function VideoPlayer({
   const shouldShowVideo = Boolean(isVideoEnabled) && hasLiveVideoTrackState && (isLocal || !isRemoteVideoSuppressed);
   const ringStrength = Math.max(0, Math.min(audioLevel * 18, 1));
   const showVideo = shouldShowVideo && videoReady && isVideoRendering;
-  const shouldRenderVideoElement = shouldShowVideo;
+  // Remote video element should mount only when frames are actually rendering;
+  // this avoids black tiles on host view while the stream is still warming up.
+  const shouldRenderVideoElement = isLocal ? shouldShowVideo : showVideo;
 
   useEffect(() => {
     const videoTrack = stream?.getVideoTracks?.()[0] || null;
@@ -108,6 +111,23 @@ function VideoPlayer({
       videoTrack.removeEventListener('unmute', syncTrackState);
       videoTrack.removeEventListener('ended', syncTrackState);
       window.clearInterval(intervalId);
+    };
+  }, [isLocal, stream]);
+
+  useEffect(() => {
+    if (isLocal || !stream) {
+      setShowRemoteAvatarShield(false);
+      return undefined;
+    }
+
+    // Keep avatar above remote tile briefly after join/track changes to prevent black flashes.
+    setShowRemoteAvatarShield(true);
+    const timeoutId = window.setTimeout(() => {
+      setShowRemoteAvatarShield(false);
+    }, 4000);
+
+    return () => {
+      window.clearTimeout(timeoutId);
     };
   }, [isLocal, stream]);
 
@@ -327,7 +347,7 @@ function VideoPlayer({
           />
         )}
 
-        {!showVideo && (
+        {(!showVideo || showRemoteAvatarShield) && (
           <div className="absolute inset-0 flex items-center justify-center">
             <SpeakerBackdrop active={isSpeaking} featured={featured} />
             <div className="relative z-10 flex items-center justify-center">
