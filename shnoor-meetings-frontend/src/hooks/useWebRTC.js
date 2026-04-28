@@ -176,10 +176,26 @@ export function useWebRTC(roomId, options = {}) {
     pendingMessagesRef.current.push(msg);
   }, []);
 
+  const getEffectiveMediaState = useCallback(() => {
+    const stream = localStream || originalStream.current;
+    const audioTrack = stream?.getAudioTracks?.()[0];
+    const videoTrack = stream?.getVideoTracks?.()[0];
+
+    return {
+      audioEnabled: audioTrack
+        ? (audioTrack.readyState === 'live' && audioTrack.enabled)
+        : isAudioEnabled,
+      videoEnabled: videoTrack
+        ? (videoTrack.readyState === 'live' && videoTrack.enabled)
+        : isVideoEnabled,
+    };
+  }, [isAudioEnabled, isVideoEnabled, localStream]);
+
   const syncParticipantState = useCallback((extraState = {}) => {
     if (!joinedRoomRef.current) {
       return;
     }
+    const { audioEnabled, videoEnabled } = getEffectiveMediaState();
 
     sendSignalingMessage({
       type: 'participant-update',
@@ -188,11 +204,11 @@ export function useWebRTC(roomId, options = {}) {
       role: isHost.current ? 'host' : 'participant',
       isHandRaised,
       isSharingScreen,
-      isAudioEnabled,
-      isVideoEnabled,
+      isAudioEnabled: audioEnabled,
+      isVideoEnabled: videoEnabled,
       ...extraState,
     });
-  }, [isAudioEnabled, isHandRaised, isSharingScreen, isVideoEnabled, sendSignalingMessage]);
+  }, [getEffectiveMediaState, isHandRaised, isSharingScreen, sendSignalingMessage]);
 
   const joinRoom = useCallback(() => {
     if (joinedRoomRef.current || !ws.current || ws.current.readyState !== WebSocket.OPEN) {
@@ -201,6 +217,7 @@ export function useWebRTC(roomId, options = {}) {
 
     joinedRoomRef.current = true;
     sessionStorage.setItem(`meeting_admitted_${roomId}`, 'true');
+    const { audioEnabled, videoEnabled } = getEffectiveMediaState();
 
     setParticipantsMetadata((prev) => ({
       ...prev,
@@ -211,8 +228,8 @@ export function useWebRTC(roomId, options = {}) {
         role: isHost.current ? 'host' : 'participant',
         isHandRaised: false,
         isSharingScreen: false,
-        isAudioEnabled,
-        isVideoEnabled,
+        isAudioEnabled: audioEnabled,
+        isVideoEnabled: videoEnabled,
       },
     }));
 
@@ -227,10 +244,10 @@ export function useWebRTC(roomId, options = {}) {
       picture: currentUser.current?.picture || null,
       role: isHost.current ? 'host' : 'participant',
       joined_at: new Date().toISOString(),
-      isAudioEnabled,
-      isVideoEnabled,
+      isAudioEnabled: audioEnabled,
+      isVideoEnabled: videoEnabled,
     });
-  }, [isAudioEnabled, isVideoEnabled, roomId, sendSignalingMessage, startSessionTracking]);
+  }, [getEffectiveMediaState, roomId, sendSignalingMessage, startSessionTracking]);
 
   const createPeerConnection = useCallback((peerId, stream) => {
     if (!peerId || !stream) {
