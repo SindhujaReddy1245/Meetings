@@ -49,18 +49,9 @@ function VideoPlayer({
   const resolvedPicture = isLocal ? (picture || loggedInUser?.picture || null) : picture;
   const resolvedLabel = isLocal ? (label || loggedInUser?.name || loggedInUser?.email || 'You') : label;
 
-  // For remote tiles, isVideoEnabled from participantsMetadata is the ONLY reliable
-  // signal for whether the remote peer has their camera on. We cannot trust
-  // videoTrack.enabled on the receiver side — WebRTC does not sync .enabled across
-  // peers; it is always true on the remote track regardless of what the sender set.
   const shouldShowVideo = Boolean(isVideoEnabled) && hasLiveVideoTrackState;
-
   const ringStrength = Math.max(0, Math.min(audioLevel * 18, 1));
   const showVideo = shouldShowVideo && videoReady && isVideoRendering;
-
-  // Always render the <video> element whenever we want to show video (local or remote).
-  // Previously remote tiles only mounted the element after isVideoRendering was already true,
-  // creating a chicken-and-egg where the frame probe could never read any frames.
   const shouldRenderVideoElement = shouldShowVideo;
 
   useEffect(() => {
@@ -73,19 +64,6 @@ function VideoPlayer({
     }
 
     const syncTrackState = () => {
-      // For LOCAL tracks: check readyState + enabled + muted.
-      //   - enabled=false means the user deliberately muted their own camera.
-      //   - muted=true means the browser hasn't received data yet (buffering).
-      //
-      // For REMOTE tracks: ONLY check readyState.
-      //   - enabled is ALWAYS true on the receiver side — WebRTC does not propagate
-      //     the sender's .enabled flag across the network. Checking it here would
-      //     cause hasLiveVideoTrackState to stay true even when the remote peer has
-      //     their camera off, making the tile show black frames instead of the avatar.
-      //   - muted on a remote track reflects network buffering, not camera state —
-      //     already excluded correctly in the previous version.
-      //   - Camera-off state for remote peers is signalled via isVideoEnabled prop,
-      //     which comes from participantsMetadata (participant-update messages).
       const hasLiveTrack = isLocal
         ? (
           videoTrack.readyState === 'live'
@@ -93,13 +71,11 @@ function VideoPlayer({
           && videoTrack.muted !== true
         )
         : (
-          // Remote: readyState only. enabled is meaningless; isVideoEnabled handles camera state.
           videoTrack.readyState === 'live'
         );
 
       setHasLiveVideoTrackState(hasLiveTrack);
       if (!hasLiveTrack) {
-        // Immediately fall back to avatar tile instead of leaving a black video layer.
         setIsVideoRendering(false);
       }
     };
@@ -155,10 +131,7 @@ function VideoPlayer({
     let consecutiveHealthyFrames = 0;
     let intervalId = null;
     let alreadyRendering = false;
-    // For remote tiles: allow a generous startup window before enforcing black-frame checks.
-    // This prevents the probe from triggering on the first few frames before the video
-    // stream has fully warmed up, which caused remote tiles to go black immediately.
-    let startupGraceTicks = isLocal ? 0 : 12; // 12 × 250ms = 3 seconds grace
+    let startupGraceTicks = isLocal ? 0 : 12;
     const probeCanvas = document.createElement('canvas');
     const probeContext = probeCanvas.getContext('2d', { willReadFrequently: true });
     probeCanvas.width = 24;
@@ -176,7 +149,6 @@ function VideoPlayer({
       setIsVideoRendering(false);
     };
 
-    // Detect playback health and only render when frames are healthy.
     intervalId = window.setInterval(() => {
       if (cancelled) return;
 
@@ -193,24 +165,20 @@ function VideoPlayer({
         stableTicks = 0;
       }
 
-      // Count down the startup grace period before enforcing any black-frame checks.
       if (startupGraceTicks > 0) {
         startupGraceTicks -= 1;
-        // During grace period: show video as soon as we have valid dimensions + advancing frames.
         if (hasDims && advanced) {
           markRendering();
         }
         return;
       }
 
-      // If frames stop advancing for ~2s (8 × 250ms), treat video as stalled → avatar fallback.
       if (stalledTicks >= 8) {
         consecutiveHealthyFrames = 0;
         unmarkRendering();
         return;
       }
 
-      // Probe frames for black/corrupt content.
       if (hasDims && probeContext) {
         try {
           probeContext.drawImage(element, 0, 0, probeCanvas.width, probeCanvas.height);
@@ -236,30 +204,22 @@ function VideoPlayer({
           if (looksBlack) {
             consecutiveHealthyFrames = 0;
             blackFrameTicks += 1;
-            // Only fall back to avatar after several consecutive black frames (not just 1-2)
-            // to avoid falsely hiding a valid dark scene.
             if (blackFrameTicks >= 6) {
               unmarkRendering();
             }
           } else {
             blackFrameTicks = 0;
             consecutiveHealthyFrames += 1;
-            // Require at least 2 consecutive healthy frames before marking as rendering,
-            // for both local and remote tiles.
             if (consecutiveHealthyFrames >= 2) {
               markRendering();
             }
           }
         } catch {
-          // Canvas probe failed (cross-origin or GPU issue). For remote tiles, don't
-          // aggressively hide the video — just leave the current state as-is so the
-          // tile doesn't flicker to black unexpectedly.
           if (!alreadyRendering && hasDims && advanced) {
             markRendering();
           }
         }
       } else if (hasDims && advanced) {
-        // No probe context available but we have real frames advancing — show the video.
         markRendering();
       }
     }, 250);
@@ -278,9 +238,7 @@ function VideoPlayer({
 
     const handlePlaybackIssue = () => {
       setIsVideoRendering(false);
-      element.play().catch(() => {
-        // Keep avatar fallback visible if autoplay/playback can't recover immediately.
-      });
+      element.play().catch(() => {});
     };
 
     element.addEventListener('stalled', handlePlaybackIssue);
@@ -319,8 +277,6 @@ function VideoPlayer({
               opacity: showVideo ? 1 : 0,
               transition: 'opacity 180ms ease-out',
               backgroundColor: 'transparent',
-              // Prevent the invisible video element from blocking clicks/hover on the avatar
-              // when it's opacity:0 but still mounted in the DOM.
               pointerEvents: showVideo ? 'auto' : 'none',
             }}
           />
@@ -365,9 +321,7 @@ function VideoPlayer({
         )}
 
         <div className="absolute bottom-4 left-4 right-4 flex items-center justify-between">
-          <div className={`bg-black/60 backdrop-blur-md rounded-lg text-white font-semibold tracking-wide border border-white/10 shadow-lg ${
-            'px-4 py-1.5 text-sm'
-          }`}>
+          <div className={`bg-black/60 backdrop-blur-md rounded-lg text-white font-semibold tracking-wide border border-white/10 shadow-lg ${'px-4 py-1.5 text-sm'}`}>
             {resolvedLabel}
           </div>
 
@@ -417,19 +371,14 @@ export default function VideoGrid({
   isVideoEnabled = true,
   getPeerConnection,
 }) {
-  // kept for future interactions (e.g. pin), but the UI stays in grid mode always
   const [selectedTile, setSelectedTile] = useState(null);
 
   const remoteTiles = useMemo(() => {
-    // Build from the union of remoteStreams AND participantsMetadata so that
-    // a participant who has joined (visible in metadata) but whose WebRTC stream
-    // hasn't arrived yet still gets a tile showing their avatar.
     const remoteIds = new Set([
       ...Object.keys(remoteStreams || {}),
       ...Object.keys(participantsMetadata || {}),
     ]);
 
-    // Always exclude the local client's own entry.
     if (localClientId) remoteIds.delete(localClientId);
     remoteIds.delete('local');
 
@@ -443,9 +392,6 @@ export default function VideoGrid({
       isSharingScreen: participantsMetadata[peerId]?.isSharingScreen,
       isHost: participantsMetadata[peerId]?.role === 'host',
       isAudioEnabled: participantsMetadata[peerId]?.isAudioEnabled ?? true,
-      // isVideoEnabled from metadata is the authoritative camera-on/off signal for remote peers.
-      // We cannot use videoTrack.enabled on the receiver side — WebRTC does not propagate
-      // the sender's .enabled flag; it is always true on remote tracks.
       isVideoEnabled: (participantsMetadata[peerId]?.hasPublishedMediaState ?? false)
         ? (participantsMetadata[peerId]?.isVideoEnabled ?? false)
         : false,
@@ -475,10 +421,6 @@ export default function VideoGrid({
   } = useActiveSpeaker(tilesForSpeaker, getPeerConnection);
 
   const standardGridTiles = useMemo(() => {
-    // Local tile requires a stream to show (no stream = media not ready yet).
-    // Remote tiles show even without a stream — they display the avatar while
-    // the WebRTC connection is establishing, so the host sees the participant
-    // tile immediately after they join rather than it being invisible.
     const tiles = [localTile, ...remoteTiles]
       .filter((tile) => tile.isLocal ? tile.stream : tile.label)
       .sort((left, right) => {
@@ -501,6 +443,15 @@ export default function VideoGrid({
         return rightLevel - leftLevel;
       })
   ), [audioLevels, localTile, remoteTiles]);
+
+  // ── DEBUG LOGS — remove after the missing-tile bug is confirmed fixed ──
+  console.log('[VideoGrid] localClientId:', localClientId);
+  console.log('[VideoGrid] participantsMetadata keys:', Object.keys(participantsMetadata));
+  console.log('[VideoGrid] participantsMetadata:', JSON.stringify(participantsMetadata, null, 2));
+  console.log('[VideoGrid] remoteStreams keys:', Object.keys(remoteStreams || {}));
+  console.log('[VideoGrid] remoteTiles:', JSON.stringify(remoteTiles.map((t) => ({ id: t.id, label: t.label, hasStream: !!t.stream }))));
+  console.log('[VideoGrid] orderedStandardTiles:', orderedStandardTiles.map((t) => t.id));
+  // ── END DEBUG ──
 
   return (
     <div className="w-full h-full flex items-center justify-center p-4 overflow-y-auto">
