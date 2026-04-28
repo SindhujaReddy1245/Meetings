@@ -374,29 +374,42 @@ export default function VideoGrid({
   const [selectedTile, setSelectedTile] = useState(null);
 
   const remoteTiles = useMemo(() => {
+    // Collect all remote peer IDs from BOTH remoteStreams and participantsMetadata.
+    // This is critical: a participant who has been admitted but whose WebRTC stream
+    // hasn't arrived yet must still appear as an avatar tile.
     const remoteIds = new Set([
       ...Object.keys(remoteStreams || {}),
       ...Object.keys(participantsMetadata || {}),
     ]);
 
+    // Remove the local client's own ID from the remote set
     if (localClientId) remoteIds.delete(localClientId);
+    // Remove the generic 'local' key used by the local stream
     remoteIds.delete('local');
 
-    return Array.from(remoteIds).map((peerId) => ({
-      hasPublishedMediaState: participantsMetadata[peerId]?.hasPublishedMediaState ?? false,
-      id: peerId,
-      stream: remoteStreams[peerId] || null,
-      label: participantsMetadata[peerId]?.name || 'Participant',
-      picture: participantsMetadata[peerId]?.picture || null,
-      isHandRaised: participantsMetadata[peerId]?.isHandRaised,
-      isSharingScreen: participantsMetadata[peerId]?.isSharingScreen,
-      isHost: participantsMetadata[peerId]?.role === 'host',
-      isAudioEnabled: participantsMetadata[peerId]?.isAudioEnabled ?? true,
-      isVideoEnabled: (participantsMetadata[peerId]?.hasPublishedMediaState ?? false)
-        ? (participantsMetadata[peerId]?.isVideoEnabled ?? false)
-        : false,
-      isLocal: false,
-    }));
+    return Array.from(remoteIds).map((peerId) => {
+      const meta = participantsMetadata[peerId] || {};
+      const stream = remoteStreams?.[peerId] || null;
+
+      return {
+        id: peerId,
+        stream,
+        label: meta.name || 'Participant',
+        picture: meta.picture || null,
+        isHandRaised: meta.isHandRaised ?? false,
+        isSharingScreen: meta.isSharingScreen ?? false,
+        isHost: meta.role === 'host',
+        isAudioEnabled: meta.isAudioEnabled ?? true,
+        // Only show video if the participant has signalled they have published media
+        // AND their video is enabled. If hasPublishedMediaState is absent (older
+        // signalling path) fall back to true so we don't permanently hide their tile.
+        isVideoEnabled: meta.hasPublishedMediaState != null
+          ? (meta.hasPublishedMediaState ? (meta.isVideoEnabled ?? false) : false)
+          : (meta.isVideoEnabled ?? true),
+        hasPublishedMediaState: meta.hasPublishedMediaState ?? false,
+        isLocal: false,
+      };
+    });
   }, [localClientId, participantsMetadata, remoteStreams]);
 
   const localTile = useMemo(() => ({
@@ -420,23 +433,28 @@ export default function VideoGrid({
     audioLevels,
   } = useActiveSpeaker(tilesForSpeaker, getPeerConnection);
 
-  const standardGridTiles = useMemo(() => {
-    const tiles = [localTile, ...remoteTiles]
-      .filter((tile) => tile.isLocal ? tile.stream : tile.label)
-      .sort((left, right) => {
-        const leftLevel = audioLevels[left.id] || 0;
-        const rightLevel = audioLevels[right.id] || 0;
-        return rightLevel - leftLevel;
-      });
-    if (tiles.length <= 1) return 'grid-cols-1 max-w-4xl';
-    if (tiles.length === 2) return 'grid-cols-1 sm:grid-cols-2 max-w-6xl';
-    if (tiles.length <= 4) return 'grid-cols-1 sm:grid-cols-2 max-w-6xl';
-    return 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 max-w-7xl';
-  }, [audioLevels, localTile, remoteTiles]);
-
+  // ─── FIXED FILTER ───────────────────────────────────────────────────────────
+  // Old filter: tile.isLocal ? tile.stream : tile.label
+  //   → Remote tiles were shown only if they had a label, but the sort/grid
+  //     calculation was inconsistent with which tiles actually rendered.
+  //
+  // New filter:
+  //   • Local tile: must have a stream (camera/mic initialised).
+  //   • Remote tile: always show — even without a stream — so the participant's
+  //     avatar tile is visible immediately after they are admitted, before their
+  //     WebRTC media arrives. A name fallback ('Participant') guarantees the tile
+  //     is always meaningful.
+  // ────────────────────────────────────────────────────────────────────────────
   const orderedStandardTiles = useMemo(() => (
     [localTile, ...remoteTiles]
-      .filter((tile) => tile.isLocal ? tile.stream : tile.label)
+      .filter((tile) => {
+        if (tile.isLocal) {
+          // Only render the local tile once we have a media stream
+          return Boolean(tile.stream);
+        }
+        // Always render remote participants — show avatar if stream not yet ready
+        return true;
+      })
       .sort((left, right) => {
         const leftLevel = audioLevels[left.id] || 0;
         const rightLevel = audioLevels[right.id] || 0;
@@ -444,14 +462,13 @@ export default function VideoGrid({
       })
   ), [audioLevels, localTile, remoteTiles]);
 
-  // ── DEBUG LOGS — remove after the missing-tile bug is confirmed fixed ──
-  console.log('[VideoGrid] localClientId:', localClientId);
-  console.log('[VideoGrid] participantsMetadata keys:', Object.keys(participantsMetadata));
-  console.log('[VideoGrid] participantsMetadata:', JSON.stringify(participantsMetadata, null, 2));
-  console.log('[VideoGrid] remoteStreams keys:', Object.keys(remoteStreams || {}));
-  console.log('[VideoGrid] remoteTiles:', JSON.stringify(remoteTiles.map((t) => ({ id: t.id, label: t.label, hasStream: !!t.stream }))));
-  console.log('[VideoGrid] orderedStandardTiles:', orderedStandardTiles.map((t) => t.id));
-  // ── END DEBUG ──
+  const gridColsClass = useMemo(() => {
+    const count = orderedStandardTiles.length;
+    if (count <= 1) return 'grid-cols-1 max-w-4xl';
+    if (count === 2) return 'grid-cols-1 sm:grid-cols-2 max-w-6xl';
+    if (count <= 4) return 'grid-cols-1 sm:grid-cols-2 max-w-6xl';
+    return 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 max-w-7xl';
+  }, [orderedStandardTiles.length]);
 
   return (
     <div className="w-full h-full flex items-center justify-center p-4 overflow-y-auto">
@@ -481,10 +498,13 @@ export default function VideoGrid({
           50% { transform: scale(1.10); opacity: 0.95; }
         }
       `}</style>
+
+      {/* Invisible audio elements for all remote streams */}
       {remoteTiles.map((tile) => (
-        <RemoteAudio key={`audio-${tile.id}`} stream={tile.stream} />
+        tile.stream ? <RemoteAudio key={`audio-${tile.id}`} stream={tile.stream} /> : null
       ))}
-      <div className={`grid gap-6 w-full ${standardGridTiles} mx-auto items-center justify-items-center`}>
+
+      <div className={`grid gap-6 w-full ${gridColsClass} mx-auto items-center justify-items-center`}>
         {orderedStandardTiles.map((tile) => (
           <button
             key={tile.id}
