@@ -15,6 +15,7 @@ class ConnectionManager:
         self.connection_users: Dict[str, Dict[WebSocket, dict]] = {}
         self.waiting_requests: Dict[str, Dict[str, dict]] = {}
         self.accepted_participants: Dict[str, set[str]] = {}
+        self.accepted_identities: Dict[str, set[str]] = {}
         self.registered_meetings: Dict[str, dict] = {}
 
     async def connect(self, websocket: WebSocket, room_id: str, client_id: str):
@@ -25,6 +26,7 @@ class ConnectionManager:
             self.connection_users[room_id] = {}
             self.waiting_requests[room_id] = {}
             self.accepted_participants[room_id] = set()
+            self.accepted_identities[room_id] = set()
             
         self.active_connections[room_id].append(websocket)
         self.user_records[room_id][websocket] = client_id
@@ -56,6 +58,7 @@ class ConnectionManager:
                 self.connection_users.pop(room_id, None)
                 self.waiting_requests.pop(room_id, None)
                 self.accepted_participants.pop(room_id, None)
+                self.accepted_identities.pop(room_id, None)
 
         return metadata
 
@@ -124,7 +127,15 @@ class ConnectionManager:
     def get_connection_user(self, room_id: str, websocket: WebSocket):
         return self.connection_users.get(room_id, {}).get(websocket)
 
-    def add_waiting_request(self, room_id: str, client_id: str, name: str, picture: str | None = None):
+    def add_waiting_request(
+        self,
+        room_id: str,
+        client_id: str,
+        name: str,
+        picture: str | None = None,
+        user_id: str | None = None,
+        email: str | None = None,
+    ):
         if room_id not in self.waiting_requests:
             self.waiting_requests[room_id] = {}
 
@@ -132,6 +143,8 @@ class ConnectionManager:
             "id": client_id,
             "name": name,
             "picture": picture,
+            "user_id": user_id,
+            "email": (email or "").strip().lower() or None,
         }
 
     def remove_waiting_request(self, room_id: str, client_id: str):
@@ -150,6 +163,22 @@ class ConnectionManager:
 
     def is_participant_accepted(self, room_id: str, client_id: str):
         return client_id in self.accepted_participants.get(room_id, set())
+
+    def add_accepted_identity(self, room_id: str, identity: str | None):
+        normalized = (identity or "").strip().lower()
+        if not normalized:
+            return
+
+        if room_id not in self.accepted_identities:
+            self.accepted_identities[room_id] = set()
+
+        self.accepted_identities[room_id].add(normalized)
+
+    def is_identity_accepted(self, room_id: str, identity: str | None):
+        normalized = (identity or "").strip().lower()
+        if not normalized:
+            return False
+        return normalized in self.accepted_identities.get(room_id, set())
 
     def register_meeting(self, room_id: str, host_id: str | None = None, host_email: str | None = None, host_name: str | None = None):
         current = self.registered_meetings.get(room_id, {})

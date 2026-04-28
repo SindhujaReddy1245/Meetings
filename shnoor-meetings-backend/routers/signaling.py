@@ -119,7 +119,12 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, client_id: str)
                 else:
                     role = "host" if requested_role == "host" or is_meeting_host else "participant"
 
-                if role == "participant" and not manager.is_participant_accepted(room_id, client_id):
+                participant_is_admitted = (
+                    manager.is_participant_accepted(room_id, client_id)
+                    or manager.is_identity_accepted(room_id, user_id)
+                    or manager.is_identity_accepted(room_id, email)
+                )
+                if role == "participant" and not participant_is_admitted:
                     await manager.send_to_websocket(websocket, {
                         "type": "join-blocked",
                         "reason": "not-admitted",
@@ -209,7 +214,14 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, client_id: str)
                     "role": "participant",
                     "joined": False,
                 })
-                manager.add_waiting_request(room_id, client_id, requester_name, data.get("picture"))
+                manager.add_waiting_request(
+                    room_id,
+                    client_id,
+                    requester_name,
+                    data.get("picture"),
+                    user_id=data.get("user_id"),
+                    email=data.get("email"),
+                )
                 await manager.send_to_role(room_id, "host", {
                     "type": "join_request",
                     "sender": client_id,
@@ -221,9 +233,12 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, client_id: str)
                 continue
 
             if msg_type in {"admit", "accept_user", "deny"} and target_id:
-                manager.remove_waiting_request(room_id, target_id)
+                removed_request = manager.remove_waiting_request(room_id, target_id)
                 if msg_type in {"admit", "accept_user"}:
                     manager.add_accepted_participant(room_id, target_id)
+                    if removed_request:
+                        manager.add_accepted_identity(room_id, removed_request.get("user_id"))
+                        manager.add_accepted_identity(room_id, removed_request.get("email"))
                 await send_waiting_room_state(room_id)
                 await manager.send_to_client(room_id, target_id, {
                     "sender": client_id,
