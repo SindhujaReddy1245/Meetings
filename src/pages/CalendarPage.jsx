@@ -8,6 +8,7 @@ import { MonthView, WeekView, DayView } from '../components/CalendarViews';
 import EventModal from '../components/EventModal';
 import { buildApiUrl } from '../utils/api';
 import { getCurrentUser } from '../utils/currentUser';
+import { generateUUID } from '../utils/uuid';
 
 function normalizeEventCategory(category) {
   const normalized = `${category || 'meetings'}`.trim().toLowerCase();
@@ -76,7 +77,7 @@ async function persistEventToApi(event, currentUser, options = {}) {
     user_email: currentUser?.email || null,
     user_name: currentUser?.name || 'Guest',
     room_id: normalizeEventCategory(event.category) === 'meetings'
-      ? (event.room_id || event.id || crypto.randomUUID())
+      ? (event.room_id || event.id || generateUUID())
       : null,
   };
 
@@ -190,7 +191,7 @@ export default function CalendarPage() {
       user_email: currentUser?.email || null,
       user_name: currentUser?.name || 'Guest',
       room_id: normalizeEventCategory(eventData.category) === 'meetings'
-        ? (eventData.room_id || eventData.id || crypto.randomUUID())
+        ? (eventData.room_id || eventData.id || generateUUID())
         : null,
     };
 

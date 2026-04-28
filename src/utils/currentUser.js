@@ -1,3 +1,5 @@
+import { generateUUID } from './uuid';
+
 export function isAllowedShnoorEmail(email) {
   const normalizedEmail = `${email || ''}`.trim().toLowerCase();
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail);
@@ -49,7 +51,7 @@ export function ensureFrontendUserId(user) {
 
   return persistUser({
     ...user,
-    meetingUserId: crypto.randomUUID(),
+    meetingUserId: generateUUID(),
   });
 }
 

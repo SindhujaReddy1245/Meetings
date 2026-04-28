@@ -8,6 +8,7 @@ import {
 } from '../utils/meetingUtils';
 import { buildWebSocketUrl, getIceServerConfig } from '../utils/api';
 import { getCurrentUser } from '../utils/currentUser';
+import { generateUUID } from '../utils/uuid';
 
 const ICE_SERVERS = getIceServerConfig();
 
@@ -19,7 +20,7 @@ function getStableClientId(roomId) {
     return existingId;
   }
 
-  const nextId = crypto.randomUUID();
+  const nextId = generateUUID();
   sessionStorage.setItem(storageKey, nextId);
   return nextId;
 }
