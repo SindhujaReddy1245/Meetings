@@ -163,22 +163,30 @@ function VideoPlayer({
           const frameData = probeContext.getImageData(0, 0, probeCanvas.width, probeCanvas.height).data;
           let total = 0;
           let totalSq = 0;
+          let darkPixels = 0;
           let pixels = 0;
 
           for (let i = 0; i < frameData.length; i += 4) {
             const luminance = (0.2126 * frameData[i]) + (0.7152 * frameData[i + 1]) + (0.0722 * frameData[i + 2]);
             total += luminance;
             totalSq += luminance * luminance;
+            if (luminance < 18) {
+              darkPixels += 1;
+            }
             pixels += 1;
           }
 
           const avg = pixels ? total / pixels : 0;
           const variance = pixels ? (totalSq / pixels) - (avg * avg) : 0;
-          const looksBlack = avg < 8 && variance < 12;
+          const darkRatio = pixels ? darkPixels / pixels : 1;
+          const looksBlack = (
+            (avg < 16 && variance < 28)
+            || darkRatio > 0.92
+          );
 
           if (looksBlack) {
             blackFrameTicks += 1;
-            if (blackFrameTicks >= 4) {
+            if (blackFrameTicks >= 2) {
               suppressRenderingUntilHealthyFrame = true;
               setIsVideoRendering(false);
             }
