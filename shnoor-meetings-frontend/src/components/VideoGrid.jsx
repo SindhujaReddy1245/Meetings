@@ -93,6 +93,7 @@ function VideoPlayer({
     let cancelled = false;
     let lastTime = element.currentTime || 0;
     let stableTicks = 0;
+    let stalledTicks = 0;
     let rafId = null;
     let intervalId = null;
 
@@ -122,10 +123,17 @@ function VideoPlayer({
       const advanced = timeNow > lastTime + 0.08;
       if (advanced) {
         lastTime = timeNow;
+        stalledTicks = 0;
+      } else if (hasDims) {
+        stalledTicks += 1;
       }
       stableTicks = advanced ? stableTicks + 1 : 0;
       if (hasDims && stableTicks >= 2) {
         markRendering();
+      }
+      // If frames stop advancing for ~1.5s, treat video as stalled and show avatar fallback.
+      if (stalledTicks >= 6) {
+        setIsVideoRendering(false);
       }
     }, 250);
 
@@ -136,6 +144,30 @@ function VideoPlayer({
       if (rafId) rafId = null;
     };
   }, [shouldShowVideo]);
+
+  useEffect(() => {
+    const element = videoRef.current;
+    if (!element) {
+      return undefined;
+    }
+
+    const handlePlaybackIssue = () => {
+      setIsVideoRendering(false);
+      element.play().catch(() => {
+        // Keep avatar fallback visible if autoplay/playback can't recover immediately.
+      });
+    };
+
+    element.addEventListener('stalled', handlePlaybackIssue);
+    element.addEventListener('waiting', handlePlaybackIssue);
+    element.addEventListener('emptied', handlePlaybackIssue);
+
+    return () => {
+      element.removeEventListener('stalled', handlePlaybackIssue);
+      element.removeEventListener('waiting', handlePlaybackIssue);
+      element.removeEventListener('emptied', handlePlaybackIssue);
+    };
+  }, [stream]);
 
   return (
     <SpeakerHighlight active={isSpeaking} featured={featured}>
