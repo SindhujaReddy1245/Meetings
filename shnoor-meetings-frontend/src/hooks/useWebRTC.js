@@ -758,6 +758,34 @@ export function useWebRTC(roomId, options = {}) {
       let stream = new MediaStream();
 
       try {
+        ws.current = new WebSocket(buildWebSocketUrl(`/ws/${roomId}/${clientId.current}`));
+
+        ws.current.onopen = () => {
+          pendingMessagesRef.current.forEach((message) => {
+            ws.current?.send(JSON.stringify(message));
+          });
+          pendingMessagesRef.current = [];
+
+          if (isHost.current) {
+            ws.current?.send(JSON.stringify({
+              type: 'host_join',
+              user_id: currentUser.current?.meetingUserId || clientId.current,
+              email: currentUser.current?.email || null,
+              name: displayName.current,
+              picture: currentUser.current?.picture || null,
+            }));
+          }
+
+          if (autoJoin) {
+            joinRoomCallbackRef.current?.();
+          }
+        };
+
+        ws.current.onmessage = async (event) => {
+          const message = JSON.parse(event.data);
+          await handleSignalingDataRef.current?.(message, stream || originalStream.current);
+        };
+
         if (acquireMedia) {
           try {
             const cachedPreJoinStream = consumePreJoinStream(roomId);
@@ -808,34 +836,6 @@ export function useWebRTC(roomId, options = {}) {
         } else {
           originalStream.current = stream;
         }
-
-        ws.current = new WebSocket(buildWebSocketUrl(`/ws/${roomId}/${clientId.current}`));
-
-        ws.current.onopen = () => {
-          pendingMessagesRef.current.forEach((message) => {
-            ws.current?.send(JSON.stringify(message));
-          });
-          pendingMessagesRef.current = [];
-
-          if (isHost.current) {
-            ws.current?.send(JSON.stringify({
-              type: 'host_join',
-              user_id: currentUser.current?.meetingUserId || clientId.current,
-              email: currentUser.current?.email || null,
-              name: displayName.current,
-              picture: currentUser.current?.picture || null,
-            }));
-          }
-
-          if (autoJoin) {
-            joinRoomCallbackRef.current?.();
-          }
-        };
-
-        ws.current.onmessage = async (event) => {
-          const message = JSON.parse(event.data);
-          await handleSignalingDataRef.current?.(message, stream || originalStream.current);
-        };
       } catch (error) {
         console.error('Error starting WebRTC connection.', error);
         if (isMounted) {
