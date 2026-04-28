@@ -687,6 +687,13 @@ export function useWebRTC(roomId, options = {}) {
         break;
 
       case 'join-blocked':
+        // Previous join attempt was rejected by waiting-room policy.
+        // Reset local joined state so an upcoming "accepted" event can retry join-room.
+        joinedRoomRef.current = false;
+        if (participantStateHeartbeatRef.current) {
+          window.clearInterval(participantStateHeartbeatRef.current);
+          participantStateHeartbeatRef.current = null;
+        }
         sessionStorage.removeItem(`meeting_admitted_${roomId}`);
         window.dispatchEvent(new CustomEvent('meeting-denied', { detail: { roomId } }));
         break;
